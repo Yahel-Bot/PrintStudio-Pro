@@ -1,0 +1,34 @@
+# Dependencias
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Compilados y empaquetados
+dist/
+build/
+
+# Bases de datos y almacenamiento de datos local
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.sqlite
+!data/.gitkeep
+
+# IDEs, editores y herramientas locales
+.vs/
+.vscode/
+.claude/
+.superdesign/
+.remember/
+.aider*
+*.sln
+*.slnx
+
+# Archivos de sistema y temporales
+desktop.ini
+Thumbs.db
+.DS_Store
+*.tmp
+*.bak
+*.backup

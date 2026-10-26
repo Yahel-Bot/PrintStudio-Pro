@@ -1,0 +1,78 @@
+{
+  "name": "printstudio_pro",
+  "version": "1.0.0",
+  "description": "PrintStudio Pro - Intelligent Color Scanner, Cost Calculator & Printer Bridge",
+  "main": "index.js",
+  "build": {
+    "appId": "com.printstudio.pro",
+    "productName": "PrintStudio Pro",
+    "directories": {
+      "output": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "index.js",
+      "preload.js",
+      "database.js",
+      "analysis.js",
+      "server.js",
+      "hotspot_manager.js",
+      "office_bridge.py",
+      "ticket_generator.js",
+      "upload_client.html",
+      "assets/**/*",
+      "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "office_bridge.py"
+    ],
+    "win": {
+      "target": ["portable", "nsis"],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PrintStudio Pro"
+    }
+  },
+  "scripts": {
+    "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev:vite": "vite",
+    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "build": "vite build && electron-builder",
+    "rebuild": "electron-builder install-app-deps",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.9.0",
+    "cors": "^2.8.5",
+    "express": "^5.0.0",
+    "localtunnel": "^2.0.2",
+    "multer": "^2.0.0-rc.1",
+    "pdf-to-printer": "^5.8.0",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.5.2",
+    "vite": "^5.3.1",
+    "wait-on": "^7.2.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}

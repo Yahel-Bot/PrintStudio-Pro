@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PrintStudio Pro - Enviar Documentos</title>
+    <style>
+        :root {
+            --bg-main: #0f172a;
+            --bg-card: #1e293b;
+            --bg-card-hover: #26334d;
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --primary-glow: rgba(99, 102, 241, 0.35);
+            --success: #10b981;
+            --danger: #ef4444;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(99, 102, 241, 0.4);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+            background: var(--bg-main);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.12) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.08) 0%, transparent 40%);
+        }
+
+        .container {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+            padding: 28px 24px;
+            width: 100%;
+            max-width: 460px;
+            position: relative;
+        }
+
+        .brand-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 22px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .brand-icon {
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, var(--primary) 0%, #818cf8 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            box-shadow: 0 8px 16px var(--primary-glow);
+            flex-shrink: 0;
+        }
+
+        .brand-titles h1 {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            color: var(--text-primary);
+        }
+
+        .brand-titles p {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .dropzone {
+            border: 2px dashed var(--border-highlight);
+            border-radius: 16px;
+            padding: 28px 16px;
+            text-align: center;
+            cursor: pointer;
+            background: rgba(99, 102, 241, 0.03);
+            transition: all 0.25s ease;
+            position: relative;
+        }
+
+        .dropzone:active, .dropzone.dragover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+            transform: scale(0.99);
+        }
+
+        .dropzone-icon {
+            font-size: 40px;
+            margin-bottom: 10px;
+            filter: drop-shadow(0 4px 8px var(--primary-glow));
+        }
+
+        .dropzone-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+
+        .dropzone-subtext {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .file-types-badge {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 4px 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            font-size: 11px;
+            color: #a5b4fc;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .file-list {
+            margin-top: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 240px;
+            overflow-y: auto;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            font-size: 13px;
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            overflow: hidden;
+            flex: 1;
+        }
+
+        .file-badge-icon {
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .file-details {
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .file-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: var(--text-primary);
+        }
+
+        .file-size {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .remove-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 18px;
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex-shrink: 0;
+            margin-left: 8px;
+        }
+
+        .remove-btn:hover {
+            color: var(--danger);
+            background: rgba(239, 68, 68, 0.15);
+        }
+
+        .progress-box {
+            margin-top: 16px;
+            display: none;
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--success) 100%);
+            border-radius: 4px;
+            transition: width 0.15s ease;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+        }
+
+        .status-msg {
+            margin-top: 16px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            line-height: 1.4;
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .status-msg.success {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #6ee7b7;
+        }
+
+        .status-msg.error {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+
+        .action-area {
+            margin-top: 20px;
+        }
+
+        .btn-upload {
+            width: 100%;
+            padding: 14px 20px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 14px var(--primary-glow);
+        }
+
+        .btn-upload:hover:not(:disabled) {
+            background: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn-upload:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn-upload:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .footer-note {
+            text-align: center;
+            margin-top: 18px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="brand-header">
+            <div class="brand-icon">🖨️</div>
+            <div class="brand-titles">
+                <h1>PrintStudio Pro</h1>
+                <p>Envío de Documentos e Imágenes</p>
+            </div>
+        </div>
+
+        <div class="dropzone" id="dropzone">
+            <div class="dropzone-icon">📤</div>
+            <div class="dropzone-title">Toca aquí para seleccionar archivos</div>
+            <div class="dropzone-subtext">O arrastra y suelta tus archivos aquí</div>
+            <div class="file-types-badge">PDF, Word, Excel, PowerPoint, JPG, PNG, WebP, HEIC</div>
+        </div>
+        <input type="file" id="fileInput" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.heic,.heif">
+
+        <div class="file-list" id="fileList"></div>
+
+        <div class="progress-box" id="progressContainer">
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progressBar"></div>
+            </div>
+            <div class="progress-label">
+                <span id="progressStatus">Subiendo...</span>
+                <span id="progressPercent">0%</span>
+            </div>
+        </div>
+
+        <div class="status-msg success" id="successMsg">
+            <span style="font-size: 18px;">✅</span>
+            <span id="successText">¡Archivos enviados con éxito! Ya están listos en la estación de impresión.</span>
+        </div>
+
+        <div class="status-msg error" id="errorMsg">
+            <span style="font-size: 18px;">⚠️</span>
+            <span id="errorText">Ocurrió un error al enviar los archivos.</span>
+        </div>
+
+        <div class="action-area">
+            <button class="btn-upload" id="uploadBtn" disabled>
+                <span>📤</span>
+                <span id="uploadBtnText">Selecciona archivos para enviar</span>
+            </button>
+        </div>
+
+        <div class="footer-note">
+            Archivos transferidos directamente a la estación de impresión sin intermediarios
+        </div>
+    </div>
+
+    <script>
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const uploadBtnText = document.getElementById('uploadBtnText');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const progressStatus = document.getElementById('progressStatus');
+        const progressPercent = document.getElementById('progressPercent');
+        const successMsg = document.getElementById('successMsg');
+        const errorMsg = document.getElementById('errorMsg');
+        const successText = document.getElementById('successText');
+        const errorText = document.getElementById('errorText');
+
+        let selectedFiles = [];
+        const MAX_FILES = 20;
+        const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+
+        dropzone.addEventListener('click', () => fileInput.click());
+
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('dragover');
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            if (e.dataTransfer && e.dataTransfer.files) {
+                addFiles(e.dataTransfer.files);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files) {
+                addFiles(e.target.files);
+            }
+        });
+
+        function getFileIcon(name) {
+            const ext = name.split('.').pop().toLowerCase();
+            if (ext === 'pdf') return '📕';
+            if (['doc', 'docx'].includes(ext)) return '📘';
+            if (['xls', 'xlsx'].includes(ext)) return '📗';
+            if (['ppt', 'pptx'].includes(ext)) return '📙';
+            if (['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif', 'tif', 'tiff'].includes(ext)) return '🖼️';
+            return '📄';
+        }
+
+        function formatSize(bytes) {
+            if (bytes < 1024 * 1024) {
+                return (bytes / 1024).toFixed(1) + ' KB';
+            }
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        }
+
+        function addFiles(files) {
+            hideAlerts();
+            const errors = [];
+
+            Array.from(files).forEach(file => {
+                if (selectedFiles.length >= MAX_FILES) {
+                    errors.push('Límite de ' + MAX_FILES + ' archivos alcanzado.');
+                    return;
+                }
+                if (file.size > MAX_FILE_SIZE) {
+                    errors.push('"' + file.name + '" excede el límite de 50 MB.');
+                    return;
+                }
+                // Check if already selected
+                const exists = selectedFiles.some(f => f.name === file.name && f.size === file.size);
+                if (!exists) {
+                    selectedFiles.push(file);
+                }
+            });
+
+            if (errors.length > 0) {
+                showError(errors.join(' '));
+            }
+
+            renderFileList();
+            updateUploadButton();
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            renderFileList();
+            updateUploadButton();
+        }
+
+        function renderFileList() {
+            fileList.innerHTML = '';
+            selectedFiles.forEach((file, index) => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                
+                const icon = getFileIcon(file.name);
+                const sizeStr = formatSize(file.size);
+
+                item.innerHTML = 
+                    '<div class="file-info">' +
+                        '<span class="file-badge-icon">' + icon + '</span>' +
+                        '<div class="file-details">' +
+                            '<span class="file-name" title="' + file.name + '">' + file.name + '</span>' +
+                            '<span class="file-size">' + sizeStr + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<button type="button" class="remove-btn" title="Eliminar" onclick="removeFile(' + index + ')">×</button>';
+
+                fileList.appendChild(item);
+            });
+        }
+
+        function updateUploadButton() {
+            const count = selectedFiles.length;
+            if (count === 0) {
+                uploadBtn.disabled = true;
+                uploadBtnText.textContent = 'Selecciona archivos para enviar';
+            } else {
+                uploadBtn.disabled = false;
+                uploadBtnText.textContent = 'Enviar ' + count + ' ' + (count === 1 ? 'archivo' : 'archivos');
+            }
+        }
+
+        function showSuccess(msg) {
+            successText.textContent = msg;
+            successMsg.style.display = 'flex';
+            errorMsg.style.display = 'none';
+        }
+
+        function showError(msg) {
+            errorText.textContent = msg;
+            errorMsg.style.display = 'flex';
+            successMsg.style.display = 'none';
+        }
+
+        function hideAlerts() {
+            successMsg.style.display = 'none';
+            errorMsg.style.display = 'none';
+        }
+
+        uploadBtn.addEventListener('click', () => {
+            if (selectedFiles.length === 0) return;
+
+            hideAlerts();
+            uploadBtn.disabled = true;
+            uploadBtnText.textContent = 'Enviando...';
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressPercent.textContent = '0%';
+            progressStatus.textContent = 'Conectando con la impresora...';
+
+            const formData = new FormData();
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+
+            const xhr = new XMLHttpRequest();
+            const targetUrl = window.__UPLOAD_ROUTE__ || window.location.pathname || '/upload';
+
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    progressBar.style.width = percent + '%';
+                    progressPercent.textContent = percent + '%';
+                    progressStatus.textContent = 'Enviando archivos (' + percent + '%)...';
+                }
+            });
+
+            xhr.addEventListener('load', () => {
+                progressContainer.style.display = 'none';
+                uploadBtn.disabled = false;
+
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    showSuccess('¡Archivos enviados con éxito! Ya están listos en la estación de impresión.');
+                    selectedFiles = [];
+                    renderFileList();
+                    fileInput.value = '';
+                    updateUploadButton();
+                } else {
+                    let errMsg = 'Error al enviar archivos (' + xhr.status + ')';
+                    try {
+                        if (xhr.responseText) errMsg = xhr.responseText;
+                    } catch (e) {}
+                    showError(errMsg);
+                    updateUploadButton();
+                }
+            });
+
+            xhr.addEventListener('error', () => {
+                progressContainer.style.display = 'none';
+                uploadBtn.disabled = false;
+                updateUploadButton();
+                showError('Error de conexión. Asegúrate de estar conectado a la red de la PC (Zona Móvil o Wi-Fi) e intenta de nuevo.');
+            });
+
+            xhr.addEventListener('timeout', () => {
+                progressContainer.style.display = 'none';
+                uploadBtn.disabled = false;
+                updateUploadButton();
+                showError('Tiempo de espera agotado. Verifica la conexión con la PC.');
+            });
+
+            xhr.timeout = 120000; // 120s
+            xhr.open('POST', targetUrl, true);
+            xhr.send(formData);
+        });
+    </script>
+</body>
+</html>
