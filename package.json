@@ -15,10 +15,12 @@
       "preload.js",
       "database.js",
       "analysis.js",
+      "image_normalizer.js",
       "server.js",
       "hotspot_manager.js",
       "office_bridge.py",
       "ticket_generator.js",
+      "upload_formats.json",
       "upload_client.html",
       "assets/**/*",
       "node_modules/**/*"
@@ -45,12 +47,14 @@
     "dev:electron": "wait-on http://localhost:5173 && electron .",
     "build": "vite build && electron-builder",
     "rebuild": "electron-builder install-app-deps",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
+    "bmp-js": "^0.1.0",
     "cors": "^2.8.5",
     "express": "^5.0.0",
+    "heic-convert": "^2.1.0",
     "localtunnel": "^2.0.2",
     "multer": "^2.0.0-rc.1",
     "pdf-to-printer": "^5.8.0",

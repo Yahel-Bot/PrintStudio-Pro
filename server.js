@@ -3,6 +3,10 @@ const multer = require('multer');
 const path = require('path');
 const cors = require('cors');
 const fs = require('fs');
+const uploadFormats = require('./upload_formats.json');
+
+const allowedExtensions = new Set([...uploadFormats.documents, ...uploadFormats.images]);
+const uploadAcceptValue = [...allowedExtensions].map(extension => `.${extension}`).join(',');
 
 function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowedToken) {
     const app = express();
@@ -36,26 +40,11 @@ function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowed
             files: 20 // Hasta 20 archivos por lote
         },
         fileFilter: (req, file, cb) => {
-            const allowedExts = [
-                '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-                '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif'
-            ];
-            const ext = path.extname(file.originalname).toLowerCase();
-            const isImage = file.mimetype && file.mimetype.startsWith('image/');
-            const isPdf = file.mimetype === 'application/pdf';
-            const isOffice = [
-                'application/msword',
-                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'application/vnd.ms-excel',
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'application/vnd.ms-powerpoint',
-                'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-            ].includes(file.mimetype);
-
-            if (allowedExts.includes(ext) || isImage || isPdf || isOffice) {
+            const ext = path.extname(file.originalname).toLowerCase().slice(1);
+            if (allowedExtensions.has(ext)) {
                 cb(null, true);
             } else {
-                cb(new Error(`Tipo de archivo no permitido (${ext || file.mimetype}). Solo se permiten documentos PDF, Word, Excel, PowerPoint o imágenes JPG, PNG, WebP, etc.`), false);
+                cb(new Error(`Tipo de archivo no permitido (${ext || file.mimetype}).`), false);
             }
         }
     });
@@ -72,7 +61,7 @@ function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowed
         try {
             if (fs.existsSync(htmlPath)) {
                 let html = fs.readFileSync(htmlPath, 'utf8');
-                const configScript = `<script>window.__UPLOAD_ROUTE__ = "${uploadRoute}"; window.__SERVER_PORT__ = ${port};</script>`;
+                const configScript = `<script>window.__UPLOAD_ROUTE__ = "${uploadRoute}"; window.__SERVER_PORT__ = ${port}; window.__UPLOAD_ACCEPT__ = ${JSON.stringify(uploadAcceptValue)};</script>`;
                 html = html.replace('</head>', `${configScript}</head>`);
                 return res.send(html);
             }
@@ -96,7 +85,7 @@ function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowed
             req.files.forEach(file => {
                 onFileReceived(file.path);
             });
-            res.status(200).send('Archivos enviados con éxito. Se están procesando en la estación de impresión.');
+            res.status(200).send('Archivos enviados con éxito. La aplicación los está procesando.');
         } else {
             res.status(400).send('No se seleccionaron archivos válidos.');
         }

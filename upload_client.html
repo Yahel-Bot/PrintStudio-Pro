@@ -335,9 +335,9 @@
             <div class="dropzone-icon">📤</div>
             <div class="dropzone-title">Toca aquí para seleccionar archivos</div>
             <div class="dropzone-subtext">O arrastra y suelta tus archivos aquí</div>
-            <div class="file-types-badge">PDF, Word, Excel, PowerPoint, JPG, PNG, WebP, HEIC</div>
+            <div class="file-types-badge">PDF, Office, JPG/JPEG, PNG, WebP, BMP, TIFF, GIF, SVG, AVIF, HEIC/HEIF</div>
         </div>
-        <input type="file" id="fileInput" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.heic,.heif">
+        <input type="file" id="fileInput" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.bmp,.tif,.tiff,.gif,.svg,.avif,.heic,.heif">
 
         <div class="file-list" id="fileList"></div>
 
@@ -353,7 +353,7 @@
 
         <div class="status-msg success" id="successMsg">
             <span style="font-size: 18px;">✅</span>
-            <span id="successText">¡Archivos enviados con éxito! Ya están listos en la estación de impresión.</span>
+            <span id="successText">¡Archivos enviados con éxito! La aplicación los está procesando.</span>
         </div>
 
         <div class="status-msg error" id="errorMsg">
@@ -376,6 +376,9 @@
     <script>
         const dropzone = document.getElementById('dropzone');
         const fileInput = document.getElementById('fileInput');
+        if (window.__UPLOAD_ACCEPT__) {
+            fileInput.accept = window.__UPLOAD_ACCEPT__;
+        }
         const fileList = document.getElementById('fileList');
         const uploadBtn = document.getElementById('uploadBtn');
         const uploadBtnText = document.getElementById('uploadBtnText');
@@ -552,7 +555,7 @@
                 uploadBtn.disabled = false;
 
                 if (xhr.status >= 200 && xhr.status < 300) {
-                    showSuccess('¡Archivos enviados con éxito! Ya están listos en la estación de impresión.');
+                    showSuccess('¡Archivos enviados con éxito! La aplicación los está procesando.');
                     selectedFiles = [];
                     renderFileList();
                     fileInput.value = '';

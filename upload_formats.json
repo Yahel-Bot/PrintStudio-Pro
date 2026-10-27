@@ -1,0 +1,19 @@
+{
+  "documents": ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx"],
+  "images": [
+    "jpg",
+    "jpeg",
+    "jpe",
+    "jfif",
+    "png",
+    "webp",
+    "bmp",
+    "tif",
+    "tiff",
+    "gif",
+    "svg",
+    "avif",
+    "heic",
+    "heif"
+  ]
+}

@@ -11,6 +11,7 @@ const startRemoteServer = require('./server');
 const localtunnel = require('localtunnel');
 const crypto = require('crypto');
 const generateTicketHTML = require('./ticket_generator');
+const normalizeImageForAnalysis = require('./image_normalizer');
 
 let hotspotManager;
 try {
@@ -329,6 +330,8 @@ ipcMain.handle('analyze-image', async (event, filePath) => {
             targetPath = path.join(tempDir, fileName);
             fs.copyFileSync(filePath, targetPath);
         }
+
+        targetPath = await normalizeImageForAnalysis(targetPath, tempDir);
         
         const result = await analizador.analizar(targetPath);
         
