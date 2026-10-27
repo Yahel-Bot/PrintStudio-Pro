@@ -85,6 +85,7 @@ When you run PrintStudio Pro for the first time:
 
 ✅ **Local Network Upload**: Upload files via QR from mobile on same WiFi
 ✅ **Cross-Network Upload**: Public tunnel allows uploads from any device anywhere
+✅ **Supported QR uploads**: PDF and Office documents; JPG/JPEG, PNG, WebP, BMP, TIFF, GIF, SVG, AVIF, HEIC, and HEIF images
 ✅ **Document Analysis**: Automatically detects color, ink coverage, and paper type
 ✅ **Smart Pricing**: Calculates printing costs based on ink usage
 ✅ **Batch Processing**: Process multiple files at once

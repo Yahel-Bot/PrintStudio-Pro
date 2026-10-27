@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import logo from './assets/logo.png';
 import { getLayoutDimensions, getPaperAspectRatio } from './domain/layout';
 import { calculatePrintCosts, isColorPage } from './domain/pricing';
+import uploadFormats from '../upload_formats.json';
 
 // Tipos para la API de Electron
 declare global {
@@ -462,11 +463,11 @@ const App: React.FC = () => {
     const ext = filePath.split('.').pop()?.toLowerCase() || '';
 
     // Filter out invalid/binary executable files (e.g. PrintStudio Pro.exe)
-    const validDocExts = ['pdf', 'docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt'];
-    const validImgExts = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tif', 'tiff'];
+    const validDocExts = uploadFormats.documents;
+    const validImgExts = uploadFormats.images;
 
     if (!validDocExts.includes(ext) && !validImgExts.includes(ext)) {
-      console.warn(`Archivo omitido (formato no soportado): ${fileName}`);
+      showToast(`No se puede agregar ${fileName}: formato no compatible.`, 'error');
       return;
     }
 
