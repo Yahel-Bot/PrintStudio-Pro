@@ -7,24 +7,25 @@ Sistema inteligente de gestión de impresiones, análisis de cobertura de color 
 ## 🌟 Características Principales
 
 - **🎨 Análisis Inteligente de Cobertura de Color:**
+
   - Estimación precisa de consumo de tinta CMYK/Color vs. Monocromático (B/N) con previsualización en vivo.
   - Escalas de precios escalonadas por volumen B/N y tarifas personalizadas por nivel de cobertura.
-
 - **📐 Cuadrículas y Formatos de Papel:**
+
   - 10 esquemas de cuadrícula fotográfica (1, 2, 3, 4, 5, 7, 8, 9, 10 y 35 fotos por página).
   - Orientación Vertical (*Portrait*) y Horizontal (*Landscape*).
   - Tamaños soportados: Carta (*Letter*), Oficio México (8.5" x 13.4"), Legal, A4 y Tabloide (11" x 17").
   - Rotación multi-ángulo (0°, 90°, 180°, 270°) y paginador interactivo multipágina.
-
 - **📲 Servidor de Carga Móvil Offline (QR Directo):**
+
   - Servidor Express integrado que permite a los clientes escanear un código QR desde su teléfono para subir archivos directamente a la PC.
   - Soporte para Hotspot / Zona con cobertura móvil de Windows (SoftAP `192.168.137.1`), funcionando **sin necesidad de router ni conexión a Internet externa**.
   - Interfaz web táctil con estética glassmorphism moderna.
-
 - **🧠 Motor de Aprendizaje Adaptativo (SQLite):**
-  - Calibración automática de precios basada en correcciones históricas del operador mediante suavizado exponencial ($\alpha = 0.25$).
 
+  - Calibración automática de precios basada en correcciones históricas del operador mediante suavizado exponencial ($\alpha = 0.25$).
 - **🧾 Generador de Tickets de Venta:**
+
   - Emisión de comprobantes térmicos detallados con desglose de páginas, copias y costos.
 
 ---
@@ -106,6 +107,7 @@ npm install
 > [!IMPORTANT]
 > **Compatibilidad de Módulos Nativos (`better-sqlite3`):**
 > Si al ejecutar la aplicación aparece un error relacionado con `NODE_MODULE_VERSION`, reconstruye las dependencias nativas para la versión de Electron utilizada (v31):
+>
 > ```bash
 > npx @electron/rebuild -v 31.0.0
 > ```
@@ -121,6 +123,7 @@ setup-dependencies.bat
 ```
 
 O instala manualmente los paquetes vía pip:
+
 ```bash
 pip install comtypes PyMuPDF opencv-python numpy
 ```
