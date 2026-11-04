@@ -3,9 +3,16 @@ export type Orientation = 'portrait' | 'landscape';
 export function getLayoutDimensions(layout: number, orientation: Orientation) {
   const landscape = orientation === 'landscape';
   const fixed: Record<number, [number, number]> = {
-    1: [1, 1], 2: landscape ? [1, 2] : [2, 1], 3: landscape ? [1, 3] : [3, 1],
-    4: [2, 2], 5: landscape ? [2, 3] : [3, 2], 7: landscape ? [2, 4] : [4, 2],
-    8: landscape ? [2, 4] : [4, 2], 9: [3, 3], 10: landscape ? [2, 5] : [5, 2],
+    1: [1, 1], 
+    2: landscape ? [1, 2] : [2, 1], 
+    3: landscape ? [1, 3] : [3, 1],
+    4: [2, 2], 
+    5: landscape ? [2, 3] : [3, 2],
+    6: landscape ? [2, 3] : [3, 2],
+    7: landscape ? [2, 4] : [4, 2],
+    8: landscape ? [2, 4] : [4, 2], 
+    9: [3, 3], 
+    10: landscape ? [2, 5] : [5, 2],
     35: landscape ? [5, 7] : [7, 5]
   };
   const pair = fixed[Number(layout)];

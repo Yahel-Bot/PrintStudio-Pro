@@ -10,8 +10,16 @@ export interface PricingPage {
 }
 
 export interface PricingModel {
-  tier1_rate: number; tier2_rate: number; tier3_rate: number; tier4_rate: number;
-  color_rate: number; cost_bw_high: number; tuning_factor: number;
+  tier1_rate: number; 
+  tier2_rate: number; 
+  tier3_rate: number; 
+  tier4_rate: number;
+  color_rate: number; 
+  color_high_rate: number;
+  cost_bw_high: number; 
+  cost_base: number;
+  tuning_factor: number;
+  total_corrections: number;
 }
 
 export interface PricingConfig {

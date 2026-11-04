@@ -111,6 +111,15 @@ class GestorDB {
         `).all();
     }
 
+    obtenerVentaPorId(id) {
+        if (!id) return null;
+        return this.db.prepare(`
+            SELECT id, archivo, fecha, paginas, copias, costo_tinta, costo_fijo, total, tipo_impresion, detalles
+            FROM ventas
+            WHERE id = ?
+        `).get(Number(id));
+    }
+
     obtenerModeloAprendizaje() {
         const rows = this.db.prepare('SELECT clave, valor FROM modelo_aprendizaje').all();
         const model = {};
@@ -161,9 +170,10 @@ class GestorDB {
         const baseColorRate = Math.max(0.05, parseFloat(correctionDetails.costColor) || 3);
 
         const updateKey = (key, newVal) => {
-            const rounded = Math.round(newVal * 100) / 100;
-            this.db.prepare('INSERT OR REPLACE INTO modelo_aprendizaje (clave, valor) VALUES (?, ?)').run(key, rounded);
-            currentModel[key] = rounded;
+            // Validate and clamp the new value
+            const validated = Math.round(Math.max(0.01, Math.min(10.0, newVal)) * 100) / 100;
+            this.db.prepare('INSERT OR REPLACE INTO modelo_aprendizaje (clave, valor) VALUES (?, ?)').run(key, validated);
+            currentModel[key] = validated;
         };
 
         // Caso A: Solo copias en Blanco y Negro
@@ -185,14 +195,20 @@ class GestorDB {
         }
         // Caso B: Solo Color
         else if (copiasColor > 0 && copiasBn === 0) {
-            const observedColorRate = Math.min(4, Math.max(0.05, ((precioCorregido - baseFee) / copiasColor) / baseColorRate));
-            const current = currentModel.color_rate ?? 3.00;
-            updateKey('color_rate', (1 - alpha) * current + alpha * observedColorRate);
+            // Use color_high_rate for high coverage pages (>50% coverage)
+            const avgCoverage = datos.cobertura_promedio || 0;
+            const targetRateKey = avgCoverage > 50 ? 'color_high_rate' : 'color_rate';
+            const currentRate = currentModel[targetRateKey] ?? (targetRateKey === 'color_high_rate' ? 5.00 : 3.00);
+            
+            const observedColorRate = Math.min(10, Math.max(0.05, ((precioCorregido - baseFee) / copiasColor) / baseColorRate));
+            updateKey(targetRateKey, (1 - alpha) * currentRate + alpha * observedColorRate);
         }
         // Caso C: Mixto (B/N y Color)
         else if (copiasBn > 0 || copiasColor > 0) {
             const currentTuning = currentModel.tuning_factor ?? 1.00;
-            const targetTuning = Math.max(0.5, Math.min(2.0, currentTuning * ratio));
+            // Guard against division by zero and extreme ratios
+            const safeRatio = precioCalculado > 0.01 ? Math.max(0.3, Math.min(3.0, precioCorregido / precioCalculado)) : 1.0;
+            const targetTuning = Math.max(0.5, Math.min(2.0, currentTuning * safeRatio));
             updateKey('tuning_factor', (1 - alpha) * currentTuning + alpha * targetTuning);
         }
 

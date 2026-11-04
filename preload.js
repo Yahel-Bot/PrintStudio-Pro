@@ -31,5 +31,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onFileReceived: (callback) => ipcRenderer.on('file-received', (event, filePath) => callback(filePath)),
     // Tunnel URL emitter from main (when localtunnel becomes available)
     onTunnelUrl: (callback) => ipcRenderer.on('tunnel-url', (event, url) => callback(url)),
-    onTunnelInfo: (callback) => ipcRenderer.on('tunnel-info', (event, info) => callback(info))
+    onTunnelInfo: (callback) => ipcRenderer.on('tunnel-info', (event, info) => callback(info)),
+    // Sistema de Actualizaciones Automáticas
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+    downloadUpdate: () => ipcRenderer.invoke('download-update'),
+    quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
+    onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (event, info) => callback(info)),
+    onUpdateProgress: (callback) => ipcRenderer.on('update-download-progress', (event, progress) => callback(progress)),
+    onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (event, info) => callback(info)),
+    onUpdateError: (callback) => ipcRenderer.on('update-error', (event, err) => callback(err))
 });

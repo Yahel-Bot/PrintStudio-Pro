@@ -4,6 +4,11 @@ const fs = require('fs');
 const os = require('os');
 const qrcode = require('qrcode');
 const { execFile } = require('child_process');
+const { autoUpdater } = require('electron-updater');
+
+// Configuración de actualizaciones automáticas
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = true;
 
 const GestorDB = require('./database');
 const AnalizadorColor = require('./analysis');
@@ -47,12 +52,12 @@ function getNetworkDetails() {
 
         const iface = interfaces[devName];
         for (const alias of iface) {
-            if (alias.family !== 'IPv4' || alias.internal || alias.address === '127.0.0.1') continue;
+            if (alias.family !== 'IPv4' || alias.internal || alias.address === '127.0.0.1' || alias.address.startsWith('169.254.')) continue;
             // Excluir máscaras de host único (/32) típicas de VPN
             if (alias.netmask === '255.255.255.255') continue;
 
             // Detectar si pertenece a la subred de Windows Hotspot (192.168.137.x)
-            if (alias.address.startsWith('192.168.137.') || /local area connection\*|wi-fi direct/i.test(lowerName)) {
+            if (alias.address.startsWith('192.168.137.')) {
                 hotspotIp = alias.address;
                 continue;
             }
@@ -137,7 +142,7 @@ app.whenReady().then(() => {
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('file-received', filePath);
         }
-    }, token);
+    }, token, (id) => gestorDB.obtenerVentaPorId(id));
 
     // Iniciar túnel opcional para datos móviles
     (async () => {
@@ -171,6 +176,15 @@ app.whenReady().then(() => {
         }
     })();
 
+    if (app.isPackaged) {
+        // Verificar actualizaciones 4 segundos después del arranque
+        setTimeout(() => {
+            autoUpdater.checkForUpdates().catch(err => {
+                console.warn('No se pudo comprobar actualización inicial:', err.message);
+            });
+        }, 4000);
+    }
+
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
@@ -178,6 +192,45 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
+});
+
+// Eventos del Auto-Updater
+autoUpdater.on('update-available', (info) => {
+    console.log('[AutoUpdater] Actualización disponible:', info.version);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-available', {
+            version: info.version,
+            releaseDate: info.releaseDate,
+            releaseNotes: info.releaseNotes
+        });
+    }
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-download-progress', {
+            percent: progressObj.percent,
+            bytesPerSecond: progressObj.bytesPerSecond,
+            transferred: progressObj.transferred,
+            total: progressObj.total
+        });
+    }
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+    console.log('[AutoUpdater] Actualización descargada con éxito:', info.version);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-downloaded', {
+            version: info.version
+        });
+    }
+});
+
+autoUpdater.on('error', (err) => {
+    console.warn('[AutoUpdater] Error:', err ? err.message : err);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-error', err ? err.message : 'Error al verificar actualizaciones');
+    }
 });
 
 // Helper para encontrar Python en Windows
@@ -388,7 +441,11 @@ ipcMain.handle('print-ticket', async (event, saleData, printerName) => {
         let workerWindow = null;
         let printTimeout = null;
         try {
-            const html = await generateTicketHTML(saleData);
+            const net = getNetworkDetails();
+            const serverHost = net.preferredLocalIp;
+            const a = encodeURIComponent(saleData.archivo || 'Trabajo');
+            const ticketUrl = saleData.ticketUrl || `http://${serverHost}:${SERVER_PORT}/ticket/${saleData.id || ''}?a=${a}&p=${saleData.paginas || 1}&c=${saleData.copias || 1}&t=${saleData.total || 0}&ti=${saleData.costo_tinta || 0}&f=${saleData.costo_fijo || 0}`;
+            const html = await generateTicketHTML(saleData, ticketUrl);
 
             workerWindow = new BrowserWindow({
                 show: false,
@@ -502,6 +559,37 @@ ipcMain.handle('print-document', async (event, jobData) => {
             reject(err);
         }
     });
+});
+
+// Auto-Updater IPC Handlers
+ipcMain.handle('check-for-updates', async () => {
+    if (!app.isPackaged) {
+        return { status: 'dev-mode', message: 'Las actualizaciones automáticas solo funcionan en la app empaquetada.' };
+    }
+    try {
+        const result = await autoUpdater.checkForUpdates();
+        return { status: 'checked', updateInfo: result ? result.updateInfo : null };
+    } catch (e) {
+        console.warn('Error manual check-for-updates:', e.message);
+        return { status: 'error', error: e.message };
+    }
+});
+
+ipcMain.handle('download-update', async () => {
+    try {
+        await autoUpdater.downloadUpdate();
+        return { success: true };
+    } catch (e) {
+        console.error('Error al descargar actualización:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('quit-and-install', () => {
+    setImmediate(() => {
+        autoUpdater.quitAndInstall(false, true);
+    });
+    return true;
 });
 
 function generatePrintHTML(jobData) {
@@ -667,6 +755,8 @@ function getLayoutDimensions(imageLayout, orientation) {
         case 4:
             return { rows: 2, cols: 2 };
         case 5:
+            return isLandscape ? { rows: 2, cols: 3 } : { rows: 3, cols: 2 };
+        case 6:
             return isLandscape ? { rows: 2, cols: 3 } : { rows: 3, cols: 2 };
         case 7:
             return isLandscape ? { rows: 2, cols: 4 } : { rows: 4, cols: 2 };

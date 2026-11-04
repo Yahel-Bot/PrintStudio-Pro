@@ -7,119 +7,176 @@ const { exec } = require('child_process');
  * para encender o apagar la zona móvil sin requerir software adicional ni router Wi-Fi.
  */
 
-// Script de PowerShell para consultar el estado del Hotspot
-const GET_HOTSPOT_PS = `
-$ErrorActionPreference = 'Stop'
-[Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime] | Out-Null
-[Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType=WindowsRuntime] | Out-Null
-$icp = [Windows.Networking.Connectivity.NetworkInformation]::GetInternetConnectionProfile()
-if (-not $icp) {
-    # Buscar cualquier perfil de conexión válido
-    $profiles = [Windows.Networking.Connectivity.NetworkInformation]::GetConnectionProfiles()
-    if ($profiles.Count -gt 0) { $icp = $profiles[0] }
-}
-
-if ($icp) {
-    try {
-        $tm = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager]::CreateFromConnectionProfile($icp)
-        $cfg = $tm.GetCurrentAccessPointConfiguration()
-        $res = @{
-            supported = $true
-            state = $tm.TetheringOperationalState.ToString()
-            ssid = $cfg.Ssid
-            password = $cfg.Passphrase
-            clients = $tm.ClientCount
-            ip = "192.168.137.1"
-        }
-        Write-Output ($res | ConvertTo-Json -Compress)
-    } catch {
-        Write-Output ("{\`"supported\`":false,\`"error\`":\`"" + $_.Exception.Message.Replace('\`"', '') + "\`"}")
-    }
-} else {
-    Write-Output '{"supported":false,"error":"No connection profile available"}'
-}
-`.trim();
-
-// Script de PowerShell para encender o apagar el Hotspot
-function getSetHotspotPs(enable) {
-    const action = enable ? '$tm.StartTetheringAsync()' : '$tm.StopTetheringAsync()';
-    return `
-$ErrorActionPreference = 'Stop'
-[Windows.Networking.Connectivity.NetworkInformation, Windows.Networking.Connectivity, ContentType=WindowsRuntime] | Out-Null
-[Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager, Windows.Networking.NetworkOperators, ContentType=WindowsRuntime] | Out-Null
-$icp = [Windows.Networking.Connectivity.NetworkInformation]::GetInternetConnectionProfile()
-if (-not $icp) {
-    $profiles = [Windows.Networking.Connectivity.NetworkInformation]::GetConnectionProfiles()
-    if ($profiles.Count -gt 0) { $icp = $profiles[0] }
-}
-
-if ($icp) {
-    try {
-        $tm = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager]::CreateFromConnectionProfile($icp)
-        $null = ${action}
-        Start-Sleep -Milliseconds 1000
-        $cfg = $tm.GetCurrentAccessPointConfiguration()
-        $res = @{
-            supported = $true
-            state = $tm.TetheringOperationalState.ToString()
-            ssid = $cfg.Ssid
-            password = $cfg.Passphrase
-            clients = $tm.ClientCount
-            ip = "192.168.137.1"
-        }
-        Write-Output ($res | ConvertTo-Json -Compress)
-    } catch {
-        Write-Output ("{\`"supported\`":false,\`"error\`":\`"" + $_.Exception.Message.Replace('\`"', '') + "\`"}")
-    }
-} else {
-    Write-Output '{"supported":false,"error":"No connection profile available"}'
-}
-`.trim();
+function runPowerShellScript(script) {
+    return new Promise((resolve) => {
+        const encodedCommand = Buffer.from(script, 'utf16le').toString('base64');
+        exec(`powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedCommand}`, { 
+            timeout: 25000,
+            maxBuffer: 1024 * 1024 // 1MB buffer
+        }, (error, stdout, stderr) => {
+            if (error) {
+                console.warn('PowerShell execution error:', error.message);
+                return resolve({ success: false, error: error.message, stderr: stderr?.toString() });
+            }
+            try {
+                const output = stdout.trim();
+                if (!output) {
+                    return resolve({ success: false, error: 'Empty output from PowerShell' });
+                }
+                const data = JSON.parse(output);
+                return resolve({ success: true, ...data });
+            } catch (e) {
+                console.warn('Error parsing PowerShell JSON output:', e.message);
+                console.warn('Raw output:', stdout);
+                return resolve({ success: false, error: `JSON parse error: ${e.message}`, raw: stdout });
+            }
+        });
+    });
 }
 
 function getHotspotInfo() {
-    return new Promise((resolve) => {
-        const encodedCommand = Buffer.from(GET_HOTSPOT_PS, 'utf16le').toString('base64');
-        exec(`powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedCommand}`, { timeout: 15000 }, (error, stdout, stderr) => {
-            if (error) {
-                console.warn('Error al consultar Hotspot:', error.message);
-                return resolve({ supported: false, state: 'Off', error: error.message });
-            }
-            try {
-                const match = stdout.trim().match(/\{[\s\S]*\}/);
-                if (match) {
-                    const data = JSON.parse(match[0]);
-                    return resolve(data);
-                }
-            } catch (e) {
-                console.warn('Error al parsear salida de Hotspot:', e);
-            }
-            resolve({ supported: false, state: 'Off', error: stdout });
-        });
-    });
+    const script = `
+$ErrorActionPreference = 'Stop'
+try {
+    Add-Type -AssemblyName System.Runtime.WindowsRuntime
+    $profiles = [Windows.Networking.Connectivity.NetworkInformation,Windows.Networking.Connectivity,ContentType=WindowsRuntime]::GetConnectionProfiles()
+    
+    if (-not $profiles -or $profiles.Count -eq 0) {
+        Write-Output (@{ supported=$false; state='Off'; error='No network profiles found' } | ConvertTo-Json -Compress)
+        return
+    }
+    
+    # Priorizar adaptador WLAN físico para tethering
+    $profile = $profiles | Where-Object { $_.IsWlanConnectionProfile -and $_.GetNetworkConnectivityLevel().ToString() -ne 'None' } | Select-Object -First 1
+    if (-not $profile) {
+        $profile = $profiles | Where-Object { $_.IsWlanConnectionProfile } | Select-Object -First 1
+    }
+    if (-not $profile) {
+        $profile = [Windows.Networking.Connectivity.NetworkInformation,Windows.Networking.Connectivity,ContentType=WindowsRuntime]::GetInternetConnectionProfile()
+    }
+    if (-not $profile) {
+        $profile = $profiles[0]
+    }
+    
+    $tm = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager,Windows.Networking.NetworkOperators,ContentType=WindowsRuntime]::CreateFromConnectionProfile($profile)
+    
+    if (-not $tm) {
+        Write-Output (@{ supported=$false; state='Off'; error='Tethering manager not available' } | ConvertTo-Json -Compress)
+        return
+    }
+    
+    $state = $tm.TetheringOperationalState.ToString()
+    $cfg = $null
+    $clients = 0
+    
+    try {
+        $cfg = $tm.GetCurrentAccessPointConfiguration()
+    } catch {}
+    
+    try {
+        if ($state -eq 'On') {
+            $clients = $tm.ClientCount
+        }
+    } catch {}
+    
+    $result = @{
+        supported = $true
+        state = $state
+        ssid = if ($cfg) { $cfg.Ssid } else { 'PrintStudio-Pro' }
+        password = if ($cfg) { $cfg.Passphrase } else { 'printstudio123' }
+        clients = $clients
+        ip = '192.168.137.1'
+        error = $null
+    }
+    
+    Write-Output ($result | ConvertTo-Json -Compress)
+} catch {
+    Write-Output (@{ supported=$false; state='Off'; error=$_.Exception.Message } | ConvertTo-Json -Compress)
+}
+`;
+    return runPowerShellScript(script);
 }
 
 function setHotspotState(enable) {
-    return new Promise((resolve) => {
-        const script = getSetHotspotPs(Boolean(enable));
-        const encodedCommand = Buffer.from(script, 'utf16le').toString('base64');
-        exec(`powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedCommand}`, { timeout: 20000 }, (error, stdout, stderr) => {
-            if (error) {
-                console.warn(`Error al ${enable ? 'activar' : 'desactivar'} Hotspot:`, error.message);
-                return resolve({ success: false, error: error.message });
+    const script = `
+$ErrorActionPreference = 'Stop'
+try {
+    Add-Type -AssemblyName System.Runtime.WindowsRuntime
+    $profiles = [Windows.Networking.Connectivity.NetworkInformation,Windows.Networking.Connectivity,ContentType=WindowsRuntime]::GetConnectionProfiles()
+    
+    if (-not $profiles -or $profiles.Count -eq 0) {
+        Write-Output (@{ success=$false; error='No network profiles found' } | ConvertTo-Json -Compress)
+        return
+    }
+    
+    $profile = $profiles | Where-Object { $_.IsWlanConnectionProfile -and $_.GetNetworkConnectivityLevel().ToString() -ne 'None' } | Select-Object -First 1
+    if (-not $profile) {
+        $profile = $profiles | Where-Object { $_.IsWlanConnectionProfile } | Select-Object -First 1
+    }
+    if (-not $profile) {
+        $profile = [Windows.Networking.Connectivity.NetworkInformation,Windows.Networking.Connectivity,ContentType=WindowsRuntime]::GetInternetConnectionProfile()
+    }
+    if (-not $profile) {
+        $profile = $profiles[0]
+    }
+    
+    $tm = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager,Windows.Networking.NetworkOperators,ContentType=WindowsRuntime]::CreateFromConnectionProfile($profile)
+    
+    if (-not $tm) {
+        Write-Output (@{ success=$false; error='Tethering manager not available' } | ConvertTo-Json -Compress)
+        return
+    }
+    
+    $currentState = $tm.TetheringOperationalState.ToString()
+    
+    if ($enable) {
+        if ($currentState -ne 'On') {
+            $null = $tm.StartTetheringAsync()
+            $waitCount = 0
+            while ($tm.TetheringOperationalState.ToString() -eq 'InTransition' -and $waitCount -lt 20) {
+                Start-Sleep -Milliseconds 500
+                $waitCount++
             }
-            try {
-                const match = stdout.trim().match(/\{[\s\S]*\}/);
-                if (match) {
-                    const data = JSON.parse(match[0]);
-                    return resolve({ success: true, ...data });
-                }
-            } catch (e) {
-                console.warn('Error al parsear salida al cambiar estado de Hotspot:', e);
+        }
+    } else {
+        if ($currentState -ne 'Off') {
+            $null = $tm.StopTetheringAsync()
+            $waitCount = 0
+            while ($tm.TetheringOperationalState.ToString() -eq 'InTransition' -and $waitCount -lt 20) {
+                Start-Sleep -Milliseconds 500
+                $waitCount++
             }
-            resolve({ success: false, error: stdout });
-        });
-    });
+        }
+    }
+    
+    $finalState = $tm.TetheringOperationalState.ToString()
+    $cfg = $null
+    $clients = 0
+    try {
+        $cfg = $tm.GetCurrentAccessPointConfiguration()
+    } catch {}
+    try {
+        if ($finalState -eq 'On') {
+            $clients = $tm.ClientCount
+        }
+    } catch {}
+    
+    $result = @{
+        success = $true
+        supported = $true
+        state = $finalState
+        ssid = if ($cfg) { $cfg.Ssid } else { 'PrintStudio-Pro' }
+        password = if ($cfg) { $cfg.Passphrase } else { 'printstudio123' }
+        clients = $clients
+        ip = '192.168.137.1'
+        message = if ($finalState -eq 'On') { 'Zona Móvil iniciada con éxito' } else { 'Zona Móvil detenida' }
+    }
+    Write-Output ($result | ConvertTo-Json -Compress)
+} catch {
+    Write-Output (@{ success=$false; state='Off'; error=$_.Exception.Message } | ConvertTo-Json -Compress)
+}
+`;
+    return runPowerShellScript(script);
 }
 
 module.exports = {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import logo from './assets/logo.png';
 import { getLayoutDimensions, getPaperAspectRatio } from './domain/layout';
 import { calculatePrintCosts, isColorPage } from './domain/pricing';
@@ -29,9 +29,15 @@ declare global {
       getHotspotInfo: () => Promise<any>;
       toggleHotspot: (enable: boolean) => Promise<any>;
       getUploadPath: () => Promise<string>;
-      getPrinters: () => Promise<any[]>;
+      getPrinters: () => Promise<Array<{ name: string; isDefault?: boolean }>>;
       generateQR: (text: string) => Promise<string>;
-      analyzeImage: (filePath: string) => Promise<any>;
+      analyzeImage: (filePath: string) => Promise<{
+        image_path: string;
+        esColor: boolean;
+        cobertura: number;
+        pctColor: number;
+        esAltaDensidadBN: boolean;
+      }>;
       saveSale: (saleData: any) => Promise<any>;
       getCorte: () => Promise<any>;
       selectFiles: () => Promise<string[]>;
@@ -45,6 +51,14 @@ declare global {
       onFileReceived: (callback: (filePath: string) => void) => void;
       onTunnelUrl: (callback: (url: string) => void) => void;
       onTunnelInfo: (callback: (info: { url: string; password?: string }) => void) => void;
+      // Auto-updater methods
+      checkForUpdates?: () => Promise<any>;
+      downloadUpdate?: () => Promise<any>;
+      quitAndInstall?: () => Promise<any>;
+      onUpdateAvailable?: (callback: (info: { version: string; releaseDate?: string; releaseNotes?: string }) => void) => void;
+      onUpdateProgress?: (callback: (progress: { percent: number; bytesPerSecond?: number; transferred?: number; total?: number }) => void) => void;
+      onUpdateDownloaded?: (callback: (info: { version: string }) => void) => void;
+      onUpdateError?: (callback: (err: string) => void) => void;
     }
   }
 }
@@ -63,6 +77,16 @@ interface PageAnalysis {
   quantity: number; // Number of copies of this specific image/page
   copiesPerPage: number; // Number of copies of each page in the print job
   colorOverride?: 'color' | 'bw' | null; // Override individual page color/BW mode
+}
+
+interface PricingConfig {
+  costBase: number;
+  costBW: number;
+  costBWHigh: number;
+  costColor: number;
+  pricingMode: 'fixed' | 'smart';
+  printColorMode: 'auto' | 'color' | 'bw';
+  copies: number;
 }
 
 const App: React.FC = () => {
@@ -89,6 +113,7 @@ const App: React.FC = () => {
     tier3_rate: number;
     tier4_rate: number;
     color_rate: number;
+    color_high_rate: number;
     cost_bw_high: number;
     cost_base: number;
     tuning_factor: number;
@@ -99,6 +124,7 @@ const App: React.FC = () => {
     tier3_rate: 0.50, // 101 a 200 copias (B/N): $0.50
     tier4_rate: 0.40, // 201+ copias (B/N): $0.40
     color_rate: 3.00,
+    color_high_rate: 5.00,
     cost_bw_high: 2.00,
     cost_base: 0.00,
     tuning_factor: 1.00,
@@ -109,6 +135,13 @@ const App: React.FC = () => {
   const [correctedTotal, setCorrectedTotal] = useState<number | null>(null);
   const [isEditingPrice, setIsEditingPrice] = useState<boolean>(false);
   const [priceCorrectionInput, setPriceCorrectionInput] = useState<string>('');
+
+  // Auto-updater State
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'available' | 'downloading' | 'downloaded' | 'error'>('idle');
+  const [updateVersion, setUpdateVersion] = useState<string>('');
+  const [updateProgress, setUpdateProgress] = useState<number>(0);
+  const [updateSpeed, setUpdateSpeed] = useState<string>('');
+  const [updateDismissed, setUpdateDismissed] = useState<boolean>(false);
 
   // Application State
   const [connectionMode, setConnectionMode] = useState<'hotspot' | 'wifi' | 'internet'>('hotspot');
@@ -345,7 +378,60 @@ const App: React.FC = () => {
         .then(qr => setTunnelUploadQr(qr))
         .catch(e => console.error('QR gen failed for tunnel URL', e));
     });
+
+    // Escuchar eventos de Auto-Updater
+    if (window.electronAPI?.onUpdateAvailable) {
+      window.electronAPI.onUpdateAvailable((info) => {
+        setUpdateVersion(info.version || '');
+        setUpdateStatus('available');
+        setUpdateDismissed(false);
+      });
+    }
+
+    if (window.electronAPI?.onUpdateProgress) {
+      window.electronAPI.onUpdateProgress((progress) => {
+        setUpdateStatus('downloading');
+        setUpdateProgress(Math.round(progress.percent || 0));
+        if (progress.bytesPerSecond) {
+          const speedMB = (progress.bytesPerSecond / (1024 * 1024)).toFixed(1);
+          setUpdateSpeed(`${speedMB} MB/s`);
+        }
+      });
+    }
+
+    if (window.electronAPI?.onUpdateDownloaded) {
+      window.electronAPI.onUpdateDownloaded((info) => {
+        setUpdateVersion(info.version || '');
+        setUpdateStatus('downloaded');
+        setUpdateProgress(100);
+      });
+    }
+
+    if (window.electronAPI?.onUpdateError) {
+      window.electronAPI.onUpdateError((err) => {
+        console.warn('Auto-updater background check info:', err);
+      });
+    }
   }, []);
+
+  // Updater Handlers
+  const handleDownloadUpdate = async () => {
+    setUpdateStatus('downloading');
+    try {
+      if (window.electronAPI?.downloadUpdate) {
+        await window.electronAPI.downloadUpdate();
+      }
+    } catch (e) {
+      console.error('Error starting update download:', e);
+      setUpdateStatus('error');
+    }
+  };
+
+  const handleQuitAndInstall = () => {
+    if (window.electronAPI?.quitAndInstall) {
+      window.electronAPI.quitAndInstall();
+    }
+  };
 
   // Helper functions for print preview and layout
   const getPrintItemsForPreview = () => {
@@ -367,11 +453,11 @@ const App: React.FC = () => {
   const getPreviewDimensions = (pSize: string, orient: 'portrait' | 'landscape') => {
     const ratio = getPaperAspectRatio(pSize, orient);
     if (orient === 'landscape') {
-      const width = 340;
+      const width = 480;
       const height = Math.round(width / ratio);
       return { width, height };
     } else {
-      const height = 360;
+      const height = 500;
       const width = Math.round(height * ratio);
       return { width, height };
     }
@@ -779,16 +865,19 @@ const App: React.FC = () => {
       // Asignar ID retornado por SQLite para el ticket
       const completedSale = { ...saleData, id: result.lastInsertRowid };
 
-      // Generar código QR para el ticket
-      const qrData = JSON.stringify({
-        id: completedSale.id,
-        total: completedSale.total.toFixed(2),
-        fecha: new Date().toLocaleString()
-      });
-      const qrDataURL = await window.electronAPI.generateQR(qrData);
+      // Construir URL completa para que el cliente acceda a su ticket digital desde su teléfono
+      const preferredIp = wifiIp || hotspotIp || '192.168.137.1';
+      const a = encodeURIComponent(completedSale.archivo || 'Trabajo');
+      const baseTicketUrl = tunnelUrl 
+        ? `${tunnelUrl.replace(/\/upload.*$/, '')}/ticket/${completedSale.id}` 
+        : `http://${preferredIp}:3500/ticket/${completedSale.id}`;
+      const ticketUrl = `${baseTicketUrl}?a=${a}&p=${completedSale.paginas}&c=${completedSale.copias}&t=${completedSale.total.toFixed(2)}&ti=${completedSale.costo_tinta.toFixed(2)}&f=${completedSale.costo_fijo.toFixed(2)}`;
+
+      const qrDataURL = await window.electronAPI.generateQR(ticketUrl);
+      const saleWithUrl = { ...completedSale, ticketUrl };
 
       setTicketQr(qrDataURL);
-      setActiveTicketData(completedSale);
+      setActiveTicketData(saleWithUrl);
       setShowTicketModal(true);
 
       // Recargar el historial diario
@@ -841,15 +930,18 @@ const App: React.FC = () => {
       detalles: parsedDetalles
     };
 
-    const qrData = JSON.stringify({
-      id: completedSale.id,
-      total: completedSale.total.toFixed(2),
-      fecha: new Date(sale.fecha).toLocaleString()
-    });
-    const qrDataURL = await window.electronAPI.generateQR(qrData);
+    const preferredIp = wifiIp || hotspotIp || '192.168.137.1';
+    const a = encodeURIComponent(completedSale.archivo || 'Trabajo');
+    const baseTicketUrl = tunnelUrl 
+      ? `${tunnelUrl.replace(/\/upload.*$/, '')}/ticket/${completedSale.id}` 
+      : `http://${preferredIp}:3500/ticket/${completedSale.id}`;
+    const ticketUrl = `${baseTicketUrl}?a=${a}&p=${completedSale.paginas}&c=${completedSale.copias}&t=${completedSale.total.toFixed(2)}&ti=${completedSale.costo_tinta.toFixed(2)}&f=${completedSale.costo_fijo.toFixed(2)}`;
+
+    const qrDataURL = await window.electronAPI.generateQR(ticketUrl);
+    const saleWithUrl = { ...completedSale, ticketUrl };
     
     setTicketQr(qrDataURL);
-    setActiveTicketData(completedSale);
+    setActiveTicketData(saleWithUrl);
     setShowTicketModal(true);
   };
 
@@ -1019,7 +1111,10 @@ const App: React.FC = () => {
           {/* Paper Viewport */}
           <div className="canvas-area">
             <div className="preview-toolbar" aria-label="Herramientas de previsualización">
-              <div className="preview-toolbar-title"><span className="toolbar-dot"></span>Vista de impresión</div>
+              <div className="preview-toolbar-title">
+                <span className="toolbar-dot"></span>
+                <span>Vista de impresión · <strong>{paperSize}</strong> ({orientation === 'portrait' ? 'Vertical' : 'Horizontal'} · {imageLayout} {imageLayout === 1 ? 'foto' : 'fotos'}/hoja)</span>
+              </div>
               <div className="preview-toolbar-actions">
                 <button type="button" onClick={() => updateSelectedRotation((selectedPage?.rotation || 0) - 90)} disabled={!selectedPage} title="Girar a la izquierda">↶</button>
                 <button type="button" onClick={() => updateSelectedRotation((selectedPage?.rotation || 0) + 90)} disabled={!selectedPage} title="Girar a la derecha">↷</button>
@@ -1033,25 +1128,25 @@ const App: React.FC = () => {
             {printItems.length === 0 ? (
               <div className="paper-empty">
                 <div className="paper-empty-icon">📄</div>
-                <div>Visualizador de Página</div>
-                <div style={{fontSize: '12px', opacity: 0.7}}>Selecciona o carga imágenes para ver la vista previa exacta</div>
+                <div>Visualizador de Página en Tiempo Real</div>
+                <div style={{fontSize: '12px', opacity: 0.7}}>Selecciona o carga imágenes para ver la vista previa exacta antes de imprimir</div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', width: '100%', height: '100%', justifyContent: 'center' }}>
                 {totalPages > 1 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-secondary)', fontSize: '13px', background: 'rgba(0,0,0,0.4)', padding: '4px 14px', borderRadius: '20px', border: '1px solid var(--border-color)' }}>
+                  <div className="preview-page-pill">
                     <button
                       type="button"
                       onClick={() => setPreviewPage(p => Math.max(1, p - 1))}
                       disabled={activePreviewPage <= 1}
-                      style={{ background: 'none', border: 'none', color: activePreviewPage <= 1 ? '#555' : '#fff', cursor: activePreviewPage <= 1 ? 'default' : 'pointer', fontSize: '14px', padding: '0 4px' }}
+                      title="Página anterior"
                     >◀</button>
-                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Página {activePreviewPage} de {totalPages}</span>
+                    <span>Página {activePreviewPage} de {totalPages}</span>
                     <button
                       type="button"
                       onClick={() => setPreviewPage(p => Math.min(totalPages, p + 1))}
                       disabled={activePreviewPage >= totalPages}
-                      style={{ background: 'none', border: 'none', color: activePreviewPage >= totalPages ? '#555' : '#fff', cursor: activePreviewPage >= totalPages ? 'default' : 'pointer', fontSize: '14px', padding: '0 4px' }}
+                      title="Página siguiente"
                     >▶</button>
                   </div>
                 )}
@@ -1423,10 +1518,9 @@ const App: React.FC = () => {
                 value={copies}
                 onChange={(e) => setCopies(Math.max(1, parseInt(e.target.value) || 1))}
                 onWheel={(e) => {
-                  e.stopPropagation();
                   e.preventDefault();
                   const delta = e.deltaY < 0 ? 1 : -1;
-                  setCopies(Math.max(1, copies + delta));
+                  setCopies(prev => Math.max(1, prev + delta));
                 }}
                 style={{ flex: 1 }}
               />
@@ -1453,22 +1547,35 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Orientation Selection */}
+          {/* Orientation Selection - Estilo Nativo Windows */}
           <div>
             <label className="field-label">Orientación del Papel</label>
-            <select 
-              className="input-select" 
-              value={orientation} 
-              onChange={(e) => setOrientation(e.target.value as 'portrait' | 'landscape')}
+            <div 
+              className="segmented-control" 
+              role="group" 
+              aria-label="Orientación del papel"
               onWheel={(e) => {
-                e.stopPropagation();
                 e.preventDefault();
                 setOrientation(prev => prev === 'portrait' ? 'landscape' : 'portrait');
               }}
             >
-              <option value="portrait">Vertical (Retrato)</option>
-              <option value="landscape">Horizontal (Paisaje)</option>
-            </select>
+              <button
+                type="button"
+                className={`segmented-btn ${orientation === 'portrait' ? 'active' : ''}`}
+                onClick={() => setOrientation('portrait')}
+                title="Orientación vertical (Retrato)"
+              >
+                <span className="seg-icon">📄</span> Vertical
+              </button>
+              <button
+                type="button"
+                className={`segmented-btn ${orientation === 'landscape' ? 'active' : ''}`}
+                onClick={() => setOrientation('landscape')}
+                title="Orientación horizontal (Paisaje)"
+              >
+                <span className="seg-icon">📃</span> Horizontal
+              </button>
+            </div>
           </div>
 
           {/* Layout Selection */}
@@ -1482,9 +1589,8 @@ const App: React.FC = () => {
                 setPreviewPage(1);
               }}
               onWheel={(e) => {
-                e.stopPropagation();
                 e.preventDefault();
-                const layouts = [1, 2, 3, 4, 5, 7, 8, 9, 10, 35];
+                const layouts = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 35];
                 const currentIndex = layouts.indexOf(imageLayout);
                 let newIndex = currentIndex;
                 if (e.deltaY < 0) {
@@ -1496,16 +1602,17 @@ const App: React.FC = () => {
                 setPreviewPage(1);
               }}
             >
-              <option value={1}>Página completa (1)</option>
-              <option value={2}>5 x 7 pulg. (2)</option>
-              <option value={3}>3 fotos por página (3)</option>
-              <option value={4}>3.5 x 5 pulg. (4)</option>
-              <option value={5}>5 fotos por página (5)</option>
-              <option value={7}>7 fotos por página (7)</option>
-              <option value={8}>8 fotos por página (8)</option>
-              <option value={9}>Billetera (9)</option>
-              <option value={10}>10 fotos por página (10)</option>
-              <option value={35}>Hoja de contactos (35)</option>
+              <option value={1}>1 foto · Página completa (1x1)</option>
+              <option value={2}>2 fotos por hoja (1x2)</option>
+              <option value={3}>3 fotos por hoja (1x3)</option>
+              <option value={4}>4 fotos por hoja (2x2 / 3.5x5")</option>
+              <option value={5}>5 fotos por hoja</option>
+              <option value={6}>6 fotos por hoja (2x3 / 4x6")</option>
+              <option value={7}>7 fotos por hoja</option>
+              <option value={8}>8 fotos por hoja</option>
+              <option value={9}>9 fotos · Billetera (3x3)</option>
+              <option value={10}>10 fotos por hoja (2x5)</option>
+              <option value={35}>35 fotos · Hoja de contactos</option>
             </select>
           </div>
 
@@ -1607,7 +1714,6 @@ const App: React.FC = () => {
                 onChange={(e) => updateSelectedRotation(parseInt(e.target.value) || 0)}
                 onWheel={(e) => {
                   if (!selectedPage) return;
-                  e.stopPropagation();
                   e.preventDefault();
                   const delta = e.deltaY < 0 ? 90 : -90;
                   updateSelectedRotation((selectedPage.rotation || 0) + delta);
@@ -1637,7 +1743,6 @@ const App: React.FC = () => {
                 onChange={(e) => updateSelectedQuantity(parseInt(e.target.value) || 1)}
                 onWheel={(e) => {
                   if (!selectedPage) return;
-                  e.stopPropagation();
                   e.preventDefault();
                   const delta = e.deltaY < 0 ? 1 : -1;
                   updateSelectedQuantity((selectedPage.quantity || 1) + delta);
@@ -2023,6 +2128,80 @@ const App: React.FC = () => {
 
       {/* Main Panel Area */}
       <div className="main-content">
+        {/* Banner de Actualización Inteligente */}
+        {updateStatus !== 'idle' && !updateDismissed && (
+          <div className={`update-notification-banner update-${updateStatus}`}>
+            <div className="update-banner-content">
+              <span className="update-banner-icon">
+                {updateStatus === 'downloaded' ? '✨' : updateStatus === 'downloading' ? '⏳' : updateStatus === 'error' ? '⚠️' : '🚀'}
+              </span>
+              <div className="update-banner-text">
+                {updateStatus === 'available' && (
+                  <>
+                    <strong>¡Nueva versión {updateVersion} disponible!</strong>
+                    <span>Hay una actualización lista para instalar en PrintStudio Pro.</span>
+                  </>
+                )}
+                {updateStatus === 'downloading' && (
+                  <>
+                    <strong>Descargando actualización ({updateProgress}%)...</strong>
+                    <span>{updateSpeed ? `Velocidad: ${updateSpeed}` : 'Descargando en segundo plano, puedes seguir trabajando.'}</span>
+                  </>
+                )}
+                {updateStatus === 'downloaded' && (
+                  <>
+                    <strong>¡Actualización v{updateVersion} descargada con éxito!</strong>
+                    <span>Reinicia la aplicación para aplicar todos los cambios de inmediato.</span>
+                  </>
+                )}
+                {updateStatus === 'error' && (
+                  <>
+                    <strong>Aviso de actualización</strong>
+                    <span>No se pudo completar la descarga. Se reintentará más tarde.</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {updateStatus === 'downloading' && (
+              <div className="update-progress-container">
+                <div className="update-progress-bar" style={{ width: `${updateProgress}%` }} />
+              </div>
+            )}
+
+            <div className="update-banner-actions">
+              {updateStatus === 'available' && (
+                <button 
+                  type="button" 
+                  className="btn-update-action" 
+                  onClick={handleDownloadUpdate}
+                >
+                  📥 Actualizar ahora
+                </button>
+              )}
+              {updateStatus === 'downloaded' && (
+                <button 
+                  type="button" 
+                  className="btn-update-restart" 
+                  onClick={handleQuitAndInstall}
+                >
+                  🔄 Reiniciar y Aplicar
+                </button>
+              )}
+              {updateStatus !== 'downloading' && (
+                <button 
+                  type="button" 
+                  className="btn-update-close" 
+                  onClick={() => setUpdateDismissed(true)}
+                  title="Cerrar notificación"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="header-nav">
           <div className="tabs">
             <button 
@@ -2102,8 +2281,13 @@ const App: React.FC = () => {
             <div className="ticket-divider"></div>
 
             <div className="ticket-qr">
-              <p style={{fontSize: '10px', color: '#4b5563', fontWeight: 600}}>Escanea para ver detalles en la base de datos</p>
-              {ticketQr && <img src={ticketQr} alt="Ticket QR" />}
+              <p style={{fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '6px'}}>
+                📱 Escanea con tu celular para ver tu Comprobante Digital
+              </p>
+              {ticketQr && <img src={ticketQr} alt="Ticket QR" style={{ width: '150px', height: '150px', borderRadius: '8px', background: '#fff', padding: '6px' }} />}
+              <p style={{fontSize: '9.5px', color: 'var(--text-secondary)', marginTop: '4px'}}>
+                Abre automáticamente el ticket interactivo con desglose de páginas
+              </p>
             </div>
 
             <div className="ticket-footer">
