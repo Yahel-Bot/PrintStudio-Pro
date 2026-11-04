@@ -609,6 +609,10 @@ function generatePrintHTML(jobData) {
             widthPt = 8.5 * 72;
             heightPt = 13.4 * 72;
             break;
+        case 'A4': // ISO A4: 8.27 x 11.69 inches (210 x 297 mm)
+            widthPt = 8.27 * 72;
+            heightPt = 11.69 * 72;
+            break;
         case 'Doble Carta / Tabloide': // Tabloid: 11 x 17 inches
             widthPt = 11 * 72;
             heightPt = 17 * 72;
@@ -735,6 +739,8 @@ function getPaperSizeMicrons(paperSize, orientation) {
         'Carta': [215900, 279400],
         'Oficio': [215900, 355600],
         'Oficio México': [215900, 340360],
+        'A4': [210000, 297000],
+        'A4': [210000, 297000],
         'Doble Carta / Tabloide': [279400, 431800]
     };
     const [width, height] = sizes[paperSize] || sizes['Carta'];

@@ -10,7 +10,7 @@ const uploadAcceptValue = [...allowedExtensions].map(extension => `.${extension}
 
 // File size limits (matching upload_client.html: 50MB per file, 10 files max)
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
-const MAX_FILE_COUNT = 10;
+const MAX_FILE_COUNT = 50;
 
 function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowedToken, getSaleById) {
     const app = express();
@@ -61,7 +61,7 @@ function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowed
             if (allowedExtensions.has(ext)) {
                 cb(null, true);
             } else {
-                cb(new Error(`Formato de archivo no permitido: .${ext}. Formatos permitidos: ${[...allowedExtensions].join(', ')}`), false);
+                cb(new Error(`Tipo de archivo no permitido: .${ext}. Formatos permitidos: ${[...allowedExtensions].join(', ')}`), false);
             }
         }
     });

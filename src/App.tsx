@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import logo from './assets/logo.png';
-import { getLayoutDimensions, getPaperAspectRatio } from './domain/layout';
+import { getLayoutDimensions, getPaperAspectRatio, getPreviewDimensions, PAPER_SPECS } from './domain/layout';
 import { calculatePrintCosts, isColorPage } from './domain/pricing';
 import uploadFormats from '../upload_formats.json';
 
@@ -450,18 +450,7 @@ const App: React.FC = () => {
     return items;
   };
 
-  const getPreviewDimensions = (pSize: string, orient: 'portrait' | 'landscape') => {
-    const ratio = getPaperAspectRatio(pSize, orient);
-    if (orient === 'landscape') {
-      const width = 480;
-      const height = Math.round(width / ratio);
-      return { width, height };
-    } else {
-      const height = 500;
-      const width = Math.round(height * ratio);
-      return { width, height };
-    }
-  };
+
 
   const updateSelectedRotation = (newRot: number) => {
     if (!selectedPage) return;
@@ -973,7 +962,14 @@ const App: React.FC = () => {
           >
             <div className="dropzone-icon">📁</div>
             <div className="dropzone-text">Cargar Documentos o Imágenes</div>
-            <div className="dropzone-subtext">Soporta PDF, Word, Excel, PowerPoint y todo tipo de imágenes</div>
+            <div className="dropzone-subtext">Arrastra aquí o haz clic para explorar tus archivos</div>
+            <div className="dropzone-badges">
+              <span className="drop-badge">PDF</span>
+              <span className="drop-badge">Word</span>
+              <span className="drop-badge">Excel</span>
+              <span className="drop-badge">PowerPoint</span>
+              <span className="drop-badge">JPG / PNG / HEIC</span>
+            </div>
           </div>
 
           {/* Scanned Pages Grid */}
@@ -1113,7 +1109,14 @@ const App: React.FC = () => {
             <div className="preview-toolbar" aria-label="Herramientas de previsualización">
               <div className="preview-toolbar-title">
                 <span className="toolbar-dot"></span>
-                <span>Vista de impresión · <strong>{paperSize}</strong> ({orientation === 'portrait' ? 'Vertical' : 'Horizontal'} · {imageLayout} {imageLayout === 1 ? 'foto' : 'fotos'}/hoja)</span>
+                <span>
+                  Hoja: <strong>{paperSize}</strong>
+                  <span className="toolbar-dims-badge">
+                    {PAPER_SPECS[paperSize] ? (orientation === 'landscape' ? `${PAPER_SPECS[paperSize].heightInches}" × ${PAPER_SPECS[paperSize].widthInches}"` : `${PAPER_SPECS[paperSize].widthInches}" × ${PAPER_SPECS[paperSize].heightInches}"`) : ''}
+                  </span>
+                  · {orientation === 'portrait' ? 'Vertical 📄' : 'Horizontal 📃'}
+                  · <strong>{imageLayout}</strong> {imageLayout === 1 ? 'foto' : 'fotos'}/página
+                </span>
               </div>
               <div className="preview-toolbar-actions">
                 <button type="button" onClick={() => updateSelectedRotation((selectedPage?.rotation || 0) - 90)} disabled={!selectedPage} title="Girar a la izquierda">↶</button>
@@ -1228,18 +1231,27 @@ const App: React.FC = () => {
                       );
                     })}
 
-                    {/* Empty layout slots: remaining spaces shown empty without duplicate images */}
+                    {/* Empty layout slots: remaining spaces shown empty with aesthetic watermark */}
                     {Array.from({ length: cellsPerPage - itemsOnThisPage.length }).map((_, emptyIdx) => (
                       <div
                         key={`empty-${emptyIdx}`}
                         className="preview-cell empty"
                         style={{
-                          backgroundColor: 'white',
-                          border: '1px dashed rgba(0, 0, 0, 0.1)',
-                          borderRadius: '2px',
-                          boxSizing: 'border-box'
+                          backgroundColor: '#fafbfc',
+                          border: '1.5px dashed rgba(148, 163, 184, 0.35)',
+                          borderRadius: '4px',
+                          boxSizing: 'border-box',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'rgba(148, 163, 184, 0.55)',
+                          fontSize: '11px',
+                          fontWeight: 500
                         }}
-                      />
+                      >
+                        <span style={{ fontSize: '13px', opacity: 0.6, marginRight: '4px' }}>＋</span>
+                        <span>Espacio libre</span>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1458,8 +1470,11 @@ const App: React.FC = () => {
       <div className="sidebar" style={{ width: `${sidebarWidth}px` }}>
         <div className="brand-section">
           <img src={logo} alt="PrintStudio Pro" className="brand-image" style={{width:48, height:48, borderRadius:8, marginRight:10}} />
-          <div style={{display:'flex', flexDirection:'column'}}>
-            <span className="brand-name">PrintStudio Pro</span>
+          <div style={{display:'flex', flexDirection:'column', flex: 1}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
+              <span className="brand-name">PrintStudio Pro</span>
+              <span className="brand-version-badge">v1.0.0</span>
+            </div>
             <span style={{fontSize:11, color:'var(--text-secondary)'}}>Sistema Inteligente de Impresión</span>
           </div>
           <button
@@ -1501,10 +1516,11 @@ const App: React.FC = () => {
           <div>
             <label className="field-label">Tamaño del Papel</label>
             <select className="input-select" value={paperSize} onChange={(e) => setPaperSize(e.target.value)}>
-              <option>Carta</option>
-              <option>Oficio</option>
-              <option>Oficio México</option>
-              <option>Doble Carta / Tabloide</option>
+              <option value="Carta">📄 Carta · 8.5" × 11" (Letter)</option>
+              <option value="Oficio">📋 Oficio · 8.5" × 14" (Legal)</option>
+              <option value="Oficio México">📑 Oficio México · 8.5" × 13.4"</option>
+              <option value="A4">📃 A4 · 210 × 297 mm</option>
+              <option value="Doble Carta / Tabloide">📰 Tabloide / Doble Carta · 11" × 17"</option>
             </select>
           </div>
 
