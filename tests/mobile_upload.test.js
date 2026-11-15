@@ -100,3 +100,49 @@ test('QR upload endpoint accepts .zip archive', async t => {
     assert.equal(response.status, 200);
     assert.match(await response.text(), /La aplicación los está procesando/);
 });
+
+test('Mobile server captive portal and ping routes prevent mobile OS network drops', async t => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'printstudio-captive-test-'));
+    const uploadDir = path.join(rootDir, 'uploads');
+    await fs.mkdir(uploadDir);
+
+    const server = startRemoteServer(
+        0,
+        uploadDir,
+        rootDir,
+        () => {},
+        'captive-token'
+    );
+
+    await new Promise((resolve, reject) => {
+        server.once('listening', resolve);
+        server.once('error', reject);
+    });
+
+    t.after(async () => {
+        await new Promise(resolve => server.close(resolve));
+        await fs.rm(rootDir, { recursive: true, force: true });
+    });
+
+    const port = server.address().port;
+
+    // Test ping
+    const pingRes = await fetch(`http://127.0.0.1:${port}/ping`);
+    assert.equal(pingRes.status, 200);
+    const pingData = await pingRes.json();
+    assert.equal(pingData.status, 'ok');
+
+    // Test Android 204
+    const androidRes = await fetch(`http://127.0.0.1:${port}/generate_204`);
+    assert.equal(androidRes.status, 204);
+
+    // Test Apple Success
+    const appleRes = await fetch(`http://127.0.0.1:${port}/hotspot-detect.html`);
+    assert.equal(appleRes.status, 200);
+    assert.match(await appleRes.text(), /Success/);
+
+    // Test fallback GET serving client HTML without 404
+    const fallbackRes = await fetch(`http://127.0.0.1:${port}/arbitrary/mobile/path`);
+    assert.equal(fallbackRes.status, 200);
+    assert.match(await fallbackRes.text(), /PrintStudio Pro/);
+});

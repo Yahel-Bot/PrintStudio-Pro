@@ -7,6 +7,10 @@ const { exec } = require('child_process');
  * para encender o apagar la zona móvil sin requerir software adicional ni router Wi-Fi.
  */
 
+let cachedHotspotInfo = null;
+let lastHotspotQueryTime = 0;
+const CACHE_TTL_MS = 3500;
+
 function runPowerShellScript(script) {
     return new Promise((resolve) => {
         const encodedCommand = Buffer.from(script, 'utf16le').toString('base64');
@@ -34,7 +38,20 @@ function runPowerShellScript(script) {
     });
 }
 
-function getHotspotInfo() {
+async function getHotspotInfo(force = false) {
+    const now = Date.now();
+    if (!force && cachedHotspotInfo && (now - lastHotspotQueryTime < CACHE_TTL_MS)) {
+        return cachedHotspotInfo;
+    }
+    const info = await executeGetHotspotInfo();
+    if (info && info.success) {
+        cachedHotspotInfo = info;
+        lastHotspotQueryTime = Date.now();
+    }
+    return info;
+}
+
+function executeGetHotspotInfo() {
     const script = `
 $ErrorActionPreference = 'Stop'
 try {
@@ -97,7 +114,8 @@ try {
     return runPowerShellScript(script);
 }
 
-function setHotspotState(enable) {
+async function setHotspotState(enable) {
+    cachedHotspotInfo = null;
     const script = `
 $ErrorActionPreference = 'Stop'
 try {

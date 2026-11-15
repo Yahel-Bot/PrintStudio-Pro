@@ -8,8 +8,8 @@ const uploadFormats = require('./upload_formats.json');
 const allowedExtensions = new Set([...uploadFormats.documents, ...uploadFormats.images, ...(uploadFormats.archives || [])]);
 const uploadAcceptValue = [...allowedExtensions].map(extension => `.${extension}`).join(',');
 
-// File size limits (matching upload_client.html: 50MB per file, 10 files max)
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+// File size limits (matching upload_client.html: 100MB per file, 50 files max)
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
 const MAX_FILE_COUNT = 50;
 
 function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowedToken, getSaleById) {
@@ -69,6 +69,23 @@ function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowed
     // Endpoint de verificación de conectividad para el móvil
     app.get('/ping', (req, res) => {
         res.json({ status: 'ok', server: 'PrintStudio Pro', timestamp: Date.now() });
+    });
+
+    // Rutas de compatibilidad para evitar bloqueos del sistema operativo en el móvil (Captive Portal)
+    app.get(['/generate_204', '/gen_204'], (req, res) => {
+        res.status(204).end();
+    });
+    app.get(['/hotspot-detect.html', '/library/test/success.html'], (req, res) => {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send('<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>');
+    });
+    app.get(['/connecttest.txt', '/ncsi.txt'], (req, res) => {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.send('Microsoft Connect Test');
+    });
+    app.get('/canonical.html', (req, res) => {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send('<HTML><BODY>OK</BODY></HTML>');
     });
 
     // Helper to send the upload page
@@ -178,6 +195,15 @@ function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowed
         app.post('/upload', upload.array('files'), handleUploadPost);
     }
 
+    // Fallback: cualquier ruta GET no reconocida muestra la página de subida
+    app.use((req, res, next) => {
+        if (req.method !== 'GET') return next();
+        if (req.path.startsWith('/ticket') || req.path.startsWith('/local-files') || req.path.startsWith('/ping')) {
+            return next();
+        }
+        serveUploadPage(req, res);
+    });
+
     // Manejo de errores para multer
     app.use((err, req, res, next) => {
         if (err instanceof multer.MulterError) {
@@ -200,6 +226,32 @@ function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowed
     server.on('error', (error) => {
         console.error(`Error iniciando servidor remoto en el puerto ${port}:`, error);
     });
+
+    // Intentar redirección transparente en puerto 80 (HTTP estándar) para facilitar acceso móvil sin escribir :3500
+    let redirectServer = null;
+    if (typeof port === 'number' && port > 0) {
+        try {
+            const http = require('http');
+            redirectServer = http.createServer((req, res) => {
+                const host = (req.headers.host || '').split(':')[0] || '192.168.137.1';
+                res.writeHead(302, { 'Location': `http://${host}:${port}${req.url}` });
+                res.end();
+            });
+            redirectServer.on('error', () => {
+                // Silencioso si el puerto 80 está ocupado o requiere privilegios de administrador
+            });
+            redirectServer.listen(80, '0.0.0.0');
+        } catch (e) {}
+    }
+
+    const originalClose = server.close.bind(server);
+    server.close = function(cb) {
+        if (redirectServer) {
+            try { redirectServer.close(); } catch (e) {}
+        }
+        return originalClose(cb);
+    };
+
     return server;
 }
 

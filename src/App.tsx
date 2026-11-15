@@ -171,7 +171,7 @@ const App: React.FC = () => {
 
   // Big QR modal & Toast notification
   const [showBigQrModal, setShowBigQrModal] = useState<boolean>(false);
-  const [bigQrData, setBigQrData] = useState<{ title: string; subtitle: string; qr: string; helpText?: string } | null>(null);
+  const [bigQrData, setBigQrData] = useState<{ title: string; subtitle: string; qr: string; helpText?: string; tipText?: string } | null>(null);
   const [toastMessage, setToastMessage] = useState<{ type: 'error' | 'success' | 'info'; text: string } | null>(null);
 
   const showToast = (text: string, type: 'error' | 'success' | 'info' = 'info') => {
@@ -275,9 +275,10 @@ const App: React.FC = () => {
       const hsUpload = await window.electronAPI.generateQR(hsUrl);
       setHotspotUploadQr(hsUpload);
 
-      // 2. QR de conexión al Wi-Fi del Hotspot (formato estándar WIFI:)
+      // 2. QR de conexión al Wi-Fi del Hotspot (formato estándar WIFI con escape de caracteres especiales)
       if (hs?.ssid && hs?.password) {
-        const wifiStr = `WIFI:S:${hs.ssid};T:WPA;P:${hs.password};;`;
+        const escapeWifiVal = (v: string) => (v || '').replace(/([\\;,:"])/g, '\\$1');
+        const wifiStr = `WIFI:S:${escapeWifiVal(hs.ssid)};T:WPA;P:${escapeWifiVal(hs.password)};;`;
         const wifiQr = await window.electronAPI.generateQR(wifiStr);
         setWifiConnectQr(wifiQr);
       }
@@ -312,6 +313,65 @@ const App: React.FC = () => {
       setIsTogglingHotspot(false);
     }
   };
+
+  // Alerta acústica sutil y agradable al recibir archivos (Web Audio API nativa sin archivos externos)
+  const playFileReceivedChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(523.25, now);
+      gain1.gain.setValueAtTime(0.07, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.15);
+
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(659.25, now + 0.1);
+      gain2.gain.setValueAtTime(0.07, now + 0.1);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.1);
+      osc2.stop(now + 0.28);
+    } catch (e) {}
+  };
+
+  // Polling para mantener sincronizado el estado de la Zona Móvil y clientes conectados en tiempo real
+  useEffect(() => {
+    if (connectionMode !== 'hotspot') return;
+
+    let isMounted = true;
+    const checkHotspot = async () => {
+      try {
+        const info = await window.electronAPI.getHotspotInfo();
+        if (isMounted && info && info.supported) {
+          setHotspotInfo(prev => {
+            if (!prev || prev.state !== info.state || prev.clients !== info.clients || prev.ssid !== info.ssid) {
+              return info;
+            }
+            return prev;
+          });
+        }
+      } catch (e) {}
+    };
+
+    checkHotspot();
+    const interval = setInterval(checkHotspot, 6000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [connectionMode]);
 
   // Load Setup data on mount
   useEffect(() => {
@@ -360,10 +420,24 @@ const App: React.FC = () => {
 
     const cleanups: Array<(() => void) | undefined> = [];
 
+    let receivedBatchCount = 0;
+    let batchToastTimer: any = null;
+
     // Listen for mobile uploaded files
     cleanups.push(window.electronAPI.onFileReceived((filePath) => {
       setFiles(prev => prev.includes(filePath) ? prev : [...prev, filePath]);
-      showToast('Nuevo archivo recibido desde el celular.', 'success');
+      receivedBatchCount++;
+      playFileReceivedChime();
+      if (batchToastTimer) clearTimeout(batchToastTimer);
+      batchToastTimer = setTimeout(() => {
+        const count = receivedBatchCount;
+        receivedBatchCount = 0;
+        if (count === 1) {
+          showToast('Nuevo archivo recibido desde el celular.', 'success');
+        } else {
+          showToast(`Se recibieron ${count} archivos desde el celular.`, 'success');
+        }
+      }, 450);
       void analyzeFile(filePath);
     }));
 
@@ -2033,6 +2107,11 @@ const App: React.FC = () => {
                   <div style={{ fontSize: '9.5px', color: '#cbd5e1', lineHeight: '1.3' }}>
                     <div><strong>Red:</strong> {hotspotInfo.ssid}</div>
                     {hotspotInfo.password && <div><strong>Contraseña:</strong> {hotspotInfo.password}</div>}
+                    {(hotspotInfo.clients || 0) > 0 && (
+                      <div style={{ color: '#34d399', fontWeight: 600, marginTop: '2px' }}>
+                        📱 {hotspotInfo.clients} {hotspotInfo.clients === 1 ? 'dispositivo conectado' : 'dispositivos conectados'}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2064,7 +2143,7 @@ const App: React.FC = () => {
                   className={`hotspot-step-btn ${hotspotStep === 'upload' ? 'active' : ''}`}
                   onClick={() => setHotspotStep('upload')}
                 >
-                  2. Subir Archivos
+                  2. Subir Archivos {(hotspotInfo?.clients || 0) > 0 ? '●' : ''}
                 </button>
               </div>
 
@@ -2078,7 +2157,8 @@ const App: React.FC = () => {
                           title: 'Paso 1: Conectar al Wi-Fi de la PC',
                           subtitle: `Escanea con la cámara de tu teléfono para conectarte automáticamente a la red "${hotspotInfo?.ssid || 'de la PC'}". No requiere internet ni router externo.`,
                           qr: wifiConnectQr,
-                          helpText: hotspotInfo?.password ? `Contraseña de red: ${hotspotInfo.password}` : undefined
+                          helpText: hotspotInfo?.password ? `Contraseña de red: ${hotspotInfo.password}` : undefined,
+                          tipText: '💡 Si tu celular pregunta "¿Mantener conexión sin internet?", selecciona SÍ para vincularlo a la PC.'
                         });
                         setShowBigQrModal(true);
                       }
@@ -2092,9 +2172,18 @@ const App: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <p className="qr-instructions">
-                    <strong>Paso 1:</strong> Escanea para conectar el celular al Wi-Fi de la PC.
-                  </p>
+                  {(hotspotInfo?.clients || 0) > 0 ? (
+                    <div 
+                      style={{ fontSize: '10px', color: '#6ee7b7', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '6px', padding: '4px 8px', textAlign: 'center', cursor: 'pointer' }}
+                      onClick={() => setHotspotStep('upload')}
+                    >
+                      ✨ ¡Celular conectado! Toca aquí para ver el QR de subida ➔
+                    </div>
+                  ) : (
+                    <p className="qr-instructions">
+                      <strong>Paso 1:</strong> Escanea para conectar el celular al Wi-Fi de la PC.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
@@ -2106,7 +2195,8 @@ const App: React.FC = () => {
                           title: 'Paso 2: Subir Archivos a la PC',
                           subtitle: 'Abre la página web de subida en tu teléfono móvil para enviar tus fotos o documentos a imprimir.',
                           qr: hotspotUploadQr,
-                          helpText: `Enlace directo: http://${hotspotIp}:3500${uploadRoute}`
+                          helpText: `Enlace directo: http://${hotspotIp}:3500${uploadRoute}`,
+                          tipText: '💡 Si tienes datos móviles (4G/5G) activos en tu celular y no carga, desactívalos temporalmente para navegar por la red local de la PC.'
                         });
                         setShowBigQrModal(true);
                       }
@@ -2403,6 +2493,11 @@ const App: React.FC = () => {
             {bigQrData.helpText && (
               <div className="big-qr-note">
                 {bigQrData.helpText}
+              </div>
+            )}
+            {bigQrData.tipText && (
+              <div style={{ marginTop: '8px', padding: '8px 12px', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '8px', fontSize: '11px', color: '#fde68a', textAlign: 'center', lineHeight: 1.4 }}>
+                {bigQrData.tipText}
               </div>
             )}
             <button

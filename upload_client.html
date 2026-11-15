@@ -319,6 +319,72 @@
             font-size: 11px;
             color: var(--text-secondary);
         }
+
+        .connection-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 14px;
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #6ee7b7;
+            transition: all 0.3s ease;
+        }
+
+        .connection-status-pill.offline {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 0 6px currentColor;
+        }
+
+        .offline-advisory {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 11.5px;
+            line-height: 1.4;
+            color: #fde68a;
+            margin-bottom: 14px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .btn-secondary {
+            width: 100%;
+            margin-top: 10px;
+            padding: 12px 20px;
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.14);
+        }
     </style>
 </head>
 <body>
@@ -329,6 +395,16 @@
                 <h1>PrintStudio Pro</h1>
                 <p>Envío de Documentos e Imágenes</p>
             </div>
+        </div>
+
+        <div class="connection-status-pill" id="connectionStatusPill">
+            <span class="status-dot"></span>
+            <span id="connectionStatusText">Conectando con la PC...</span>
+        </div>
+
+        <div class="offline-advisory" id="offlineAdvisory" style="display: none;">
+            <span>💡</span>
+            <div><strong>¿Sin conexión o no abre?</strong> Si tus datos móviles (4G/5G) están activos en tu teléfono, desactívalos temporalmente para que tu navegador se comunique por el Wi-Fi local de la PC.</div>
         </div>
 
         <div class="dropzone" id="dropzone">
@@ -366,6 +442,10 @@
                 <span>📤</span>
                 <span id="uploadBtnText">Selecciona archivos para enviar</span>
             </button>
+            <button class="btn-secondary" id="moreFilesBtn" style="display: none;" type="button">
+                <span>➕</span>
+                <span>Enviar más archivos</span>
+            </button>
         </div>
 
         <div class="footer-note">
@@ -382,6 +462,10 @@
         const fileList = document.getElementById('fileList');
         const uploadBtn = document.getElementById('uploadBtn');
         const uploadBtnText = document.getElementById('uploadBtnText');
+        const moreFilesBtn = document.getElementById('moreFilesBtn');
+        const connectionStatusPill = document.getElementById('connectionStatusPill');
+        const connectionStatusText = document.getElementById('connectionStatusText');
+        const offlineAdvisory = document.getElementById('offlineAdvisory');
         const progressContainer = document.getElementById('progressContainer');
         const progressBar = document.getElementById('progressBar');
         const progressStatus = document.getElementById('progressStatus');
@@ -391,11 +475,40 @@
         const successText = document.getElementById('successText');
         const errorText = document.getElementById('errorText');
 
+        // Verificación de conectividad en vivo con la PC
+        function checkConnection() {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 4000);
+            fetch('/ping', { signal: controller.signal, cache: 'no-store' })
+                .then(res => res.json())
+                .then(data => {
+                    clearTimeout(timer);
+                    if (data && data.status === 'ok') {
+                        connectionStatusPill.className = 'connection-status-pill';
+                        connectionStatusText.textContent = '🟢 Conectado con la PC de impresión';
+                        offlineAdvisory.style.display = 'none';
+                    } else {
+                        throw new Error('Respuesta no válida');
+                    }
+                })
+                .catch(() => {
+                    clearTimeout(timer);
+                    connectionStatusPill.className = 'connection-status-pill offline';
+                    connectionStatusText.textContent = '⚠️ Sin comunicación con la PC';
+                    offlineAdvisory.style.display = 'flex';
+                });
+        }
+        checkConnection();
+        setInterval(checkConnection, 8000);
+
         let selectedFiles = [];
-        const MAX_FILES = 20;
+        const MAX_FILES = 50;
         const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
         dropzone.addEventListener('click', () => fileInput.click());
+        if (moreFilesBtn) {
+            moreFilesBtn.addEventListener('click', () => fileInput.click());
+        }
 
         dropzone.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -418,6 +531,7 @@
             if (e.target.files) {
                 addFiles(e.target.files);
             }
+            fileInput.value = '';
         });
 
         function getFileIcon(name) {
@@ -448,7 +562,7 @@
                     return;
                 }
                 if (file.size > MAX_FILE_SIZE) {
-                    errors.push('"' + file.name + '" excede el límite de 50 MB.');
+                    errors.push('"' + file.name + '" excede el límite de 100 MB.');
                     return;
                 }
                 // Check if already selected
@@ -481,7 +595,7 @@
                 const icon = getFileIcon(file.name);
                 const sizeStr = formatSize(file.size);
 
-                const isImg = file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|bmp|gif)$/i.test(file.name);
+                const isImg = file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|bmp|gif|heic|heif)$/i.test(file.name);
                 let visualEl = '<span class="file-badge-icon">' + icon + '</span>';
                 if (isImg && typeof URL !== 'undefined' && URL.createObjectURL) {
                     try {
@@ -519,6 +633,7 @@
             successText.textContent = msg;
             successMsg.style.display = 'flex';
             errorMsg.style.display = 'none';
+            if (moreFilesBtn) moreFilesBtn.style.display = 'flex';
         }
 
         function showError(msg) {
@@ -584,7 +699,8 @@
                 progressContainer.style.display = 'none';
                 uploadBtn.disabled = false;
                 updateUploadButton();
-                showError('Error de conexión. Asegúrate de estar conectado a la red de la PC (Zona Móvil o Wi-Fi) e intenta de nuevo.');
+                showError('Error de conexión. Si tienes datos móviles encendidos, desactívalos un momento para que el navegador use la red local.');
+                offlineAdvisory.style.display = 'flex';
             });
 
             xhr.addEventListener('timeout', () => {
