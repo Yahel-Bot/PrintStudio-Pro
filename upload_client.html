@@ -335,7 +335,7 @@
             <div class="dropzone-icon">📤</div>
             <div class="dropzone-title">Toca aquí para seleccionar archivos</div>
             <div class="dropzone-subtext">O arrastra y suelta tus archivos aquí</div>
-            <div class="file-types-badge">PDF, Office, JPG/JPEG, PNG, WebP, BMP, TIFF, GIF, SVG, AVIF, HEIC/HEIF</div>
+            <div class="file-types-badge">PDF, Office (Word, Excel, PPT), Fotos/Imágenes, ZIP</div>
         </div>
         <input type="file" id="fileInput" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.bmp,.tif,.tiff,.gif,.svg,.avif,.heic,.heif">
 
@@ -426,7 +426,8 @@
             if (['doc', 'docx'].includes(ext)) return '📘';
             if (['xls', 'xlsx'].includes(ext)) return '📗';
             if (['ppt', 'pptx'].includes(ext)) return '📙';
-            if (['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif', 'tif', 'tiff'].includes(ext)) return '🖼️';
+            if (ext === 'zip') return '📦';
+            if (['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif', 'tif', 'tiff', 'heic', 'heif'].includes(ext)) return '🖼️';
             return '📄';
         }
 
@@ -480,9 +481,18 @@
                 const icon = getFileIcon(file.name);
                 const sizeStr = formatSize(file.size);
 
+                const isImg = file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|bmp|gif)$/i.test(file.name);
+                let visualEl = '<span class="file-badge-icon">' + icon + '</span>';
+                if (isImg && typeof URL !== 'undefined' && URL.createObjectURL) {
+                    try {
+                        const thumbUrl = URL.createObjectURL(file);
+                        visualEl = '<img src="' + thumbUrl + '" style="width: 38px; height: 38px; object-fit: cover; border-radius: 8px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.1);" alt="Miniatura">';
+                    } catch (e) {}
+                }
+
                 item.innerHTML = 
                     '<div class="file-info">' +
-                        '<span class="file-badge-icon">' + icon + '</span>' +
+                        visualEl +
                         '<div class="file-details">' +
                             '<span class="file-name" title="' + file.name + '">' + file.name + '</span>' +
                             '<span class="file-size">' + sizeStr + '</span>' +

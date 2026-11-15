@@ -8,8 +8,10 @@ class GestorDB {
         if (!fs.existsSync(dbDir)) {
             fs.mkdirSync(dbDir, { recursive: true });
         }
+        this.userDataPath = userDataPath;
         this.db = new Database(path.join(dbDir, 'yars_pro.db'));
         this._init();
+        this.realizarRespaldoDiario();
     }
 
     _init() {
@@ -243,6 +245,61 @@ class GestorDB {
             insertStmt.run(k, v);
         }
         return defaults;
+    }
+
+    realizarRespaldoDiario() {
+        try {
+            const backupDir = path.join(this.userDataPath, 'data', 'backups');
+            if (!fs.existsSync(backupDir)) {
+                fs.mkdirSync(backupDir, { recursive: true });
+            }
+            const today = new Date().toISOString().slice(0, 10);
+            const backupFile = path.join(backupDir, `yars_pro_backup_${today}.db`);
+            if (!fs.existsSync(backupFile)) {
+                if (typeof this.db.backup === 'function') {
+                    this.db.backup(backupFile)
+                        .then(() => {
+                            try {
+                                const files = fs.readdirSync(backupDir).filter(f => f.startsWith('yars_pro_backup_') && f.endsWith('.db')).sort();
+                                while (files.length > 7) {
+                                    const oldest = files.shift();
+                                    fs.unlinkSync(path.join(backupDir, oldest));
+                                }
+                            } catch (e) {}
+                        })
+                        .catch(err => console.warn('Aviso en respaldo de SQLite:', err.message));
+                }
+            }
+        } catch (e) {
+            console.warn('No se pudo verificar respaldo diario:', e.message);
+        }
+    }
+
+    obtenerExportacionCSV(fecha) {
+        const query = fecha 
+            ? 'SELECT id, archivo, datetime(fecha, "localtime") as fecha, paginas, copias, costo_tinta, costo_fijo, total, tipo_impresion FROM ventas WHERE date(fecha, "localtime") = date(?) ORDER BY id ASC'
+            : 'SELECT id, archivo, datetime(fecha, "localtime") as fecha, paginas, copias, costo_tinta, costo_fijo, total, tipo_impresion FROM ventas WHERE date(fecha, "localtime") = date("now", "localtime") ORDER BY id ASC';
+        
+        const rows = fecha ? this.db.prepare(query).all(fecha) : this.db.prepare(query).all();
+        
+        const headers = ['Folio', 'Archivo / Concepto', 'Fecha y Hora', 'Paginas', 'Copias', 'Subtotal Tinta', 'Cargo Base', 'Total', 'Modo'];
+        const csvLines = [headers.join(',')];
+        
+        for (const r of rows) {
+            const safeArchivo = `"${String(r.archivo || '').replace(/"/g, '""')}"`;
+            csvLines.push([
+                r.id,
+                safeArchivo,
+                `"${r.fecha}"`,
+                r.paginas,
+                r.copias,
+                Number(r.costo_tinta || 0).toFixed(2),
+                Number(r.costo_fijo || 0).toFixed(2),
+                Number(r.total || 0).toFixed(2),
+                `"${r.tipo_impresion || 'Estándar'}"`
+            ].join(','));
+        }
+        return csvLines.join('\r\n');
     }
 }
 

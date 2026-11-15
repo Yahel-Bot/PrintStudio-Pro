@@ -64,3 +64,39 @@ test('QR upload endpoint persists and forwards every advertised file extension',
     assert.equal(unsupportedResponse.status, 400);
     assert.match(await unsupportedResponse.text(), /Tipo de archivo no permitido/);
 });
+
+test('QR upload endpoint accepts .zip archive', async t => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'printstudio-zip-upload-'));
+    const uploadDir = path.join(rootDir, 'uploads');
+    await fs.mkdir(uploadDir);
+
+    const receivedPaths = [];
+    const server = startRemoteServer(
+        0,
+        uploadDir,
+        rootDir,
+        filePath => receivedPaths.push(filePath),
+        'test-zip-token'
+    );
+
+    await new Promise((resolve, reject) => {
+        server.once('listening', resolve);
+        server.once('error', reject);
+    });
+
+    t.after(async () => {
+        await new Promise(resolve => server.close(resolve));
+        await fs.rm(rootDir, { recursive: true, force: true });
+    });
+
+    const port = server.address().port;
+    const formData = new FormData();
+    formData.append('files', new Blob(['PK\x05\x06' + '\x00'.repeat(18)]), 'sample.zip');
+
+    const response = await fetch(`http://127.0.0.1:${port}/upload/test-zip-token`, {
+        method: 'POST',
+        body: formData
+    });
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /La aplicación los está procesando/);
+});

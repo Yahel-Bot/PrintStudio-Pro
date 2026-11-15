@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     analyzeImage: (filePath) => ipcRenderer.invoke('analyze-image', filePath),
     saveSale: (saleData) => ipcRenderer.invoke('save-sale', saleData),
     getCorte: () => ipcRenderer.invoke('get-corte'),
+    printCorteTicket: (printerName) => ipcRenderer.invoke('print-corte-ticket', printerName),
+    exportCorteCSV: () => ipcRenderer.invoke('export-corte-csv'),
     selectFiles: () => ipcRenderer.invoke('select-files'),
     convertOffice: (filePath) => ipcRenderer.invoke('convert-office', filePath),
     printTicket: (saleData, printerName) => ipcRenderer.invoke('print-ticket', saleData, printerName),

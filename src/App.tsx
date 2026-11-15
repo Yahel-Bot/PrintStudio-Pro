@@ -40,6 +40,8 @@ declare global {
       }>;
       saveSale: (saleData: any) => Promise<any>;
       getCorte: () => Promise<any>;
+      printCorteTicket?: (printerName?: string) => Promise<{ success: boolean; reason?: string }>;
+      exportCorteCSV?: () => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
       selectFiles: () => Promise<string[]>;
       convertOffice: (filePath: string) => Promise<any>;
       printTicket: (saleData: any, printerName?: string) => Promise<any>;
@@ -1404,6 +1406,40 @@ const App: React.FC = () => {
     );
   };
 
+  const handlePrintCorteTicket = async () => {
+    if (!selectedPrinter) {
+      alert('Por favor selecciona una impresora en el panel lateral antes de imprimir el corte.');
+      return;
+    }
+    try {
+      if (window.electronAPI?.printCorteTicket) {
+        const res = await window.electronAPI.printCorteTicket(selectedPrinter);
+        if (res?.success) {
+          showToast('Ticket de Corte Diario enviado a la impresora.', 'success');
+        } else {
+          showToast('No se pudo imprimir el corte: ' + (res?.reason || 'Error desconocido'), 'error');
+        }
+      }
+    } catch (e: any) {
+      showToast('Error al imprimir corte: ' + (e.message || e), 'error');
+    }
+  };
+
+  const handleExportCorteCSV = async () => {
+    try {
+      if (window.electronAPI?.exportCorteCSV) {
+        const res = await window.electronAPI.exportCorteCSV();
+        if (res?.success) {
+          showToast('Reporte CSV exportado con éxito.', 'success');
+        } else if (res?.error) {
+          showToast('Error al exportar CSV: ' + res.error, 'error');
+        }
+      }
+    } catch (e: any) {
+      showToast('Error al exportar: ' + (e.message || e), 'error');
+    }
+  };
+
   const renderHistoryTab = () => {
     return (
       <div className="history-panel">
@@ -1422,6 +1458,25 @@ const App: React.FC = () => {
               ${corteSummary.total_general?.toFixed(2) || '0.00'}
             </span>
           </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', marginTop: '14px', marginBottom: '14px' }}>
+          <button 
+            type="button" 
+            className="button button-primary" 
+            style={{ padding: '8px 14px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            onClick={handlePrintCorteTicket}
+          >
+            🖨️ Imprimir Ticket de Corte
+          </button>
+          <button 
+            type="button" 
+            className="button button-secondary" 
+            style={{ padding: '8px 14px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            onClick={handleExportCorteCSV}
+          >
+            📥 Exportar a Excel (CSV)
+          </button>
         </div>
 
         <div className="table-container">

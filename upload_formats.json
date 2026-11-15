@@ -15,5 +15,8 @@
     "avif",
     "heic",
     "heif"
+  ],
+  "archives": [
+    "zip"
   ]
 }

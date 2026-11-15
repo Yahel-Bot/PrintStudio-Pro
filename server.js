@@ -5,7 +5,7 @@ const cors = require('cors');
 const fs = require('fs');
 const uploadFormats = require('./upload_formats.json');
 
-const allowedExtensions = new Set([...uploadFormats.documents, ...uploadFormats.images]);
+const allowedExtensions = new Set([...uploadFormats.documents, ...uploadFormats.images, ...(uploadFormats.archives || [])]);
 const uploadAcceptValue = [...allowedExtensions].map(extension => `.${extension}`).join(',');
 
 // File size limits (matching upload_client.html: 50MB per file, 10 files max)
@@ -131,7 +131,41 @@ function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowed
     const handleUploadPost = (req, res) => {
         if (req.files && req.files.length > 0) {
             req.files.forEach(file => {
-                onFileReceived(file.path);
+                const ext = path.extname(file.originalname).toLowerCase();
+                if (ext === '.zip' && process.platform === 'win32') {
+                    try {
+                        const { execFileSync } = require('child_process');
+                        const extractSubdir = path.join(uploadDir, `zip_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+                        if (!fs.existsSync(extractSubdir)) fs.mkdirSync(extractSubdir, { recursive: true });
+                        execFileSync('powershell.exe', [
+                            '-NoProfile',
+                            '-NonInteractive',
+                            '-Command',
+                            `Expand-Archive -LiteralPath '${file.path.replace(/'/g, "''")}' -DestinationPath '${extractSubdir.replace(/'/g, "''")}' -Force`
+                        ], { timeout: 30000, stdio: ['pipe', 'pipe', 'ignore'] });
+
+                        const addExtracted = (dir) => {
+                            const entries = fs.readdirSync(dir, { withFileTypes: true });
+                            for (const entry of entries) {
+                                const fullPath = path.join(dir, entry.name);
+                                if (entry.isDirectory()) {
+                                    addExtracted(fullPath);
+                                } else if (entry.isFile()) {
+                                    const entryExt = path.extname(entry.name).toLowerCase().slice(1);
+                                    if (allowedExtensions.has(entryExt) && entryExt !== 'zip') {
+                                        onFileReceived(fullPath);
+                                    }
+                                }
+                            }
+                        };
+                        addExtracted(extractSubdir);
+                    } catch (zipErr) {
+                        console.error('Aviso al descomprimir archivo ZIP:', zipErr.message);
+                        onFileReceived(file.path);
+                    }
+                } else {
+                    onFileReceived(file.path);
+                }
             });
             res.status(200).send('Archivos enviados con éxito. La aplicación los está procesando.');
         } else {

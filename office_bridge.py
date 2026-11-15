@@ -142,6 +142,14 @@ def convert_to_images(input_path, output_parent_dir=None):
             return {"status": "error", "message": f"No se pudo generar el archivo temporal PDF para: {input_path}"}
 
         doc = fitz.open(pdf_path)
+        if getattr(doc, 'is_encrypted', False) or getattr(doc, 'needs_pass', False):
+            try: doc.close()
+            except: pass
+            return {
+                "status": "error",
+                "message": "El archivo PDF está protegido con contraseña. Por favor quita la contraseña del documento antes de imprimirlo."
+            }
+
         pages_data = []
         
         for i in range(len(doc)):

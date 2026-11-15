@@ -1,6 +1,6 @@
 {
   "name": "printstudio_pro",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "PrintStudio Pro - Intelligent Color Scanner, Cost Calculator & Printer Bridge",
   "main": "index.js",
   "build": {

@@ -16,6 +16,7 @@ const startRemoteServer = require('./server');
 const localtunnel = require('localtunnel');
 const crypto = require('crypto');
 const generateTicketHTML = require('./ticket_generator');
+const generateDailyCutTicketHTML = generateTicketHTML.generateDailyCutTicketHTML || require('./ticket_generator').generateDailyCutTicketHTML;
 const normalizeImageForAnalysis = require('./image_normalizer');
 
 let hotspotManager;
@@ -424,6 +425,91 @@ ipcMain.handle('get-corte', async () => {
     const ventas = db.obtenerDetalleVentasHoy();
     return { resumen, ventas };
 });
+
+ipcMain.handle('print-corte-ticket', async (event, printerName) => {
+    return new Promise(async (resolve, reject) => {
+        let workerWindow = null;
+        let printTimeout = null;
+        try {
+            const resumen = db.obtenerCorteDiario();
+            const ventas = db.obtenerDetalleVentasHoy();
+            const html = await generateDailyCutTicketHTML({ resumen, ventas });
+
+            workerWindow = new BrowserWindow({
+                show: false,
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true
+                }
+            });
+
+            const cleanup = () => {
+                if (printTimeout) clearTimeout(printTimeout);
+                if (workerWindow) {
+                    try { workerWindow.close(); } catch (e) {}
+                    workerWindow = null;
+                }
+            };
+
+            printTimeout = setTimeout(() => {
+                cleanup();
+                resolve({ success: false, reason: 'Tiempo de espera agotado al imprimir corte diario' });
+            }, 30000);
+
+            workerWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+
+            workerWindow.webContents.on('did-finish-load', () => {
+                const printOptions = {
+                    silent: true,
+                    printBackground: true
+                };
+                if (printerName) {
+                    printOptions.deviceName = printerName;
+                }
+                workerWindow.webContents.print(printOptions, (success, failureReason) => {
+                    cleanup();
+                    if (success) {
+                        resolve({ success: true });
+                    } else {
+                        console.warn("Fallo impresión de ticket de corte:", failureReason);
+                        resolve({ success: false, reason: failureReason });
+                    }
+                });
+            });
+        } catch (err) {
+            if (printTimeout) clearTimeout(printTimeout);
+            if (workerWindow) {
+                try { workerWindow.close(); } catch (e) {}
+            }
+            console.error("Error al imprimir corte diario:", err);
+            reject(err);
+        }
+    });
+});
+
+ipcMain.handle('export-corte-csv', async () => {
+    try {
+        const csvContent = db.obtenerExportacionCSV();
+        const today = new Date().toISOString().slice(0, 10);
+        const saveResult = await dialog.showSaveDialog(mainWindow, {
+            title: 'Exportar Reporte de Ventas a CSV',
+            defaultPath: `Corte_Ventas_${today}.csv`,
+            filters: [
+                { name: 'Archivos CSV (Excel)', extensions: ['csv'] }
+            ]
+        });
+
+        if (!saveResult.canceled && saveResult.filePath) {
+            fs.writeFileSync(saveResult.filePath, '\uFEFF' + csvContent, 'utf8');
+            return { success: true, filePath: saveResult.filePath };
+        }
+        return { success: false, canceled: true };
+    } catch (err) {
+        console.error('Error al exportar CSV:', err);
+        return { success: false, error: err.message };
+    }
+});
+
 
 ipcMain.handle('select-files', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
