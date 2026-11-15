@@ -48,17 +48,17 @@ declare global {
       savePriceCorrection: (correctionData: any) => Promise<any>;
       resetLearningModel: () => Promise<any>;
       getPathForFile: (file: any) => string;
-      onFileReceived: (callback: (filePath: string) => void) => void;
-      onTunnelUrl: (callback: (url: string) => void) => void;
-      onTunnelInfo: (callback: (info: { url: string; password?: string }) => void) => void;
+      onFileReceived: (callback: (filePath: string) => void) => () => void;
+      onTunnelUrl: (callback: (url: string) => void) => () => void;
+      onTunnelInfo: (callback: (info: { url: string; password?: string }) => void) => () => void;
       // Auto-updater methods
       checkForUpdates?: () => Promise<any>;
       downloadUpdate?: () => Promise<any>;
       quitAndInstall?: () => Promise<any>;
-      onUpdateAvailable?: (callback: (info: { version: string; releaseDate?: string; releaseNotes?: string }) => void) => void;
-      onUpdateProgress?: (callback: (progress: { percent: number; bytesPerSecond?: number; transferred?: number; total?: number }) => void) => void;
-      onUpdateDownloaded?: (callback: (info: { version: string }) => void) => void;
-      onUpdateError?: (callback: (err: string) => void) => void;
+      onUpdateAvailable?: (callback: (info: { version: string; releaseDate?: string; releaseNotes?: string }) => void) => () => void;
+      onUpdateProgress?: (callback: (progress: { percent: number; bytesPerSecond?: number; transferred?: number; total?: number }) => void) => () => void;
+      onUpdateDownloaded?: (callback: (info: { version: string }) => void) => () => void;
+      onUpdateError?: (callback: (err: string) => void) => () => void;
     }
   }
 }
@@ -356,62 +356,70 @@ const App: React.FC = () => {
 
     setupApp();
 
+    const cleanups: Array<(() => void) | undefined> = [];
+
     // Listen for mobile uploaded files
-    window.electronAPI.onFileReceived((filePath) => {
+    cleanups.push(window.electronAPI.onFileReceived((filePath) => {
       setFiles(prev => prev.includes(filePath) ? prev : [...prev, filePath]);
       showToast('Nuevo archivo recibido desde el celular.', 'success');
       void analyzeFile(filePath);
-    });
+    }));
 
     // Listen for public tunnel URL and info from main
-    window.electronAPI.onTunnelInfo((info: { url: string; password?: string }) => {
+    cleanups.push(window.electronAPI.onTunnelInfo((info: { url: string; password?: string }) => {
       setPublicUploadUrl(info.url);
       if (info.password) setTunnelPassword(info.password);
       window.electronAPI.generateQR(info.url)
         .then(qr => setTunnelUploadQr(qr))
         .catch(e => console.error('QR gen failed for tunnel URL', e));
-    });
+    }));
 
-    window.electronAPI.onTunnelUrl((url: string) => {
+    cleanups.push(window.electronAPI.onTunnelUrl((url: string) => {
       setPublicUploadUrl(url);
       window.electronAPI.generateQR(url)
         .then(qr => setTunnelUploadQr(qr))
         .catch(e => console.error('QR gen failed for tunnel URL', e));
-    });
+    }));
 
     // Escuchar eventos de Auto-Updater
     if (window.electronAPI?.onUpdateAvailable) {
-      window.electronAPI.onUpdateAvailable((info) => {
+      cleanups.push(window.electronAPI.onUpdateAvailable((info) => {
         setUpdateVersion(info.version || '');
         setUpdateStatus('available');
         setUpdateDismissed(false);
-      });
+      }));
     }
 
     if (window.electronAPI?.onUpdateProgress) {
-      window.electronAPI.onUpdateProgress((progress) => {
+      cleanups.push(window.electronAPI.onUpdateProgress((progress) => {
         setUpdateStatus('downloading');
         setUpdateProgress(Math.round(progress.percent || 0));
         if (progress.bytesPerSecond) {
           const speedMB = (progress.bytesPerSecond / (1024 * 1024)).toFixed(1);
           setUpdateSpeed(`${speedMB} MB/s`);
         }
-      });
+      }));
     }
 
     if (window.electronAPI?.onUpdateDownloaded) {
-      window.electronAPI.onUpdateDownloaded((info) => {
+      cleanups.push(window.electronAPI.onUpdateDownloaded((info) => {
         setUpdateVersion(info.version || '');
         setUpdateStatus('downloaded');
         setUpdateProgress(100);
-      });
+      }));
     }
 
     if (window.electronAPI?.onUpdateError) {
-      window.electronAPI.onUpdateError((err) => {
+      cleanups.push(window.electronAPI.onUpdateError((err) => {
         console.warn('Auto-updater background check info:', err);
-      });
+      }));
     }
+
+    return () => {
+      cleanups.forEach(cleanup => {
+        try { if (typeof cleanup === 'function') cleanup(); } catch (e) {}
+      });
+    };
   }, []);
 
   // Updater Handlers
@@ -857,8 +865,8 @@ const App: React.FC = () => {
       // Construir URL completa para que el cliente acceda a su ticket digital desde su teléfono
       const preferredIp = wifiIp || hotspotIp || '192.168.137.1';
       const a = encodeURIComponent(completedSale.archivo || 'Trabajo');
-      const baseTicketUrl = tunnelUrl 
-        ? `${tunnelUrl.replace(/\/upload.*$/, '')}/ticket/${completedSale.id}` 
+      const baseTicketUrl = publicUploadUrl 
+        ? `${publicUploadUrl.replace(/\/upload.*$/, '')}/ticket/${completedSale.id}` 
         : `http://${preferredIp}:3500/ticket/${completedSale.id}`;
       const ticketUrl = `${baseTicketUrl}?a=${a}&p=${completedSale.paginas}&c=${completedSale.copias}&t=${completedSale.total.toFixed(2)}&ti=${completedSale.costo_tinta.toFixed(2)}&f=${completedSale.costo_fijo.toFixed(2)}`;
 
@@ -921,8 +929,8 @@ const App: React.FC = () => {
 
     const preferredIp = wifiIp || hotspotIp || '192.168.137.1';
     const a = encodeURIComponent(completedSale.archivo || 'Trabajo');
-    const baseTicketUrl = tunnelUrl 
-      ? `${tunnelUrl.replace(/\/upload.*$/, '')}/ticket/${completedSale.id}` 
+    const baseTicketUrl = publicUploadUrl 
+      ? `${publicUploadUrl.replace(/\/upload.*$/, '')}/ticket/${completedSale.id}` 
       : `http://${preferredIp}:3500/ticket/${completedSale.id}`;
     const ticketUrl = `${baseTicketUrl}?a=${a}&p=${completedSale.paginas}&c=${completedSale.copias}&t=${completedSale.total.toFixed(2)}&ti=${completedSale.costo_tinta.toFixed(2)}&f=${completedSale.costo_fijo.toFixed(2)}`;
 
@@ -1222,7 +1230,7 @@ const App: React.FC = () => {
                                 width: '100%',
                                 height: '100%',
                                 objectFit: fitOption === 'fill' ? 'cover' : 'contain',
-                                filter: isPageColor(item) ? 'none' : 'grayscale(100%) contrast(105%)',
+                                filter: isPageColor(item.originalPage) ? 'none' : 'grayscale(100%) contrast(105%)',
                                 transition: 'filter 0.25s ease'
                               }}
                             />

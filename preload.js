@@ -28,16 +28,44 @@ contextBridge.exposeInMainWorld('electronAPI', {
         }
         return file.path || '';
     },
-    onFileReceived: (callback) => ipcRenderer.on('file-received', (event, filePath) => callback(filePath)),
+    onFileReceived: (callback) => {
+        const handler = (event, filePath) => callback(filePath);
+        ipcRenderer.on('file-received', handler);
+        return () => ipcRenderer.removeListener('file-received', handler);
+    },
     // Tunnel URL emitter from main (when localtunnel becomes available)
-    onTunnelUrl: (callback) => ipcRenderer.on('tunnel-url', (event, url) => callback(url)),
-    onTunnelInfo: (callback) => ipcRenderer.on('tunnel-info', (event, info) => callback(info)),
+    onTunnelUrl: (callback) => {
+        const handler = (event, url) => callback(url);
+        ipcRenderer.on('tunnel-url', handler);
+        return () => ipcRenderer.removeListener('tunnel-url', handler);
+    },
+    onTunnelInfo: (callback) => {
+        const handler = (event, info) => callback(info);
+        ipcRenderer.on('tunnel-info', handler);
+        return () => ipcRenderer.removeListener('tunnel-info', handler);
+    },
     // Sistema de Actualizaciones Automáticas
     checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
     downloadUpdate: () => ipcRenderer.invoke('download-update'),
     quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
-    onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (event, info) => callback(info)),
-    onUpdateProgress: (callback) => ipcRenderer.on('update-download-progress', (event, progress) => callback(progress)),
-    onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (event, info) => callback(info)),
-    onUpdateError: (callback) => ipcRenderer.on('update-error', (event, err) => callback(err))
+    onUpdateAvailable: (callback) => {
+        const handler = (event, info) => callback(info);
+        ipcRenderer.on('update-available', handler);
+        return () => ipcRenderer.removeListener('update-available', handler);
+    },
+    onUpdateProgress: (callback) => {
+        const handler = (event, progress) => callback(progress);
+        ipcRenderer.on('update-download-progress', handler);
+        return () => ipcRenderer.removeListener('update-download-progress', handler);
+    },
+    onUpdateDownloaded: (callback) => {
+        const handler = (event, info) => callback(info);
+        ipcRenderer.on('update-downloaded', handler);
+        return () => ipcRenderer.removeListener('update-downloaded', handler);
+    },
+    onUpdateError: (callback) => {
+        const handler = (event, err) => callback(err);
+        ipcRenderer.on('update-error', handler);
+        return () => ipcRenderer.removeListener('update-error', handler);
+    }
 });

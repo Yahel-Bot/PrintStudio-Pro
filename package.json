@@ -58,6 +58,7 @@
     "build": "vite build && electron-builder",
     "build:publish": "vite build && electron-builder --publish always",
     "rebuild": "electron-builder install-app-deps",
+    "typecheck": "tsc --noEmit",
     "test": "node --test"
   },
   "dependencies": {
@@ -69,7 +70,6 @@
     "heic-convert": "^2.1.0",
     "localtunnel": "^2.0.2",
     "multer": "^2.0.0-rc.1",
-    "pdf-to-printer": "^5.8.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

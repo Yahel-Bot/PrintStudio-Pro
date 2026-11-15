@@ -142,7 +142,7 @@ app.whenReady().then(() => {
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('file-received', filePath);
         }
-    }, token, (id) => gestorDB.obtenerVentaPorId(id));
+    }, token, (id) => db.obtenerVentaPorId(id));
 
     // Iniciar túnel opcional para datos móviles
     (async () => {
@@ -740,7 +740,7 @@ function getPaperSizeMicrons(paperSize, orientation) {
         'Oficio': [215900, 355600],
         'Oficio México': [215900, 340360],
         'A4': [210000, 297000],
-        'A4': [210000, 297000],
+
         'Doble Carta / Tabloide': [279400, 431800]
     };
     const [width, height] = sizes[paperSize] || sizes['Carta'];

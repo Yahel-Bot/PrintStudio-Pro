@@ -21,6 +21,8 @@ data/*.sqlite
 .claude/
 .superdesign/
 .remember/
+.superpowers/
+.qodo/
 .aider*
 *.sln
 *.slnx
