@@ -47,7 +47,8 @@
       {
         "provider": "github",
         "owner": "Yahel-Bot",
-        "repo": "PrintStudio-Pro"
+        "repo": "PrintStudio-Pro",
+        "releaseType": "release"
       }
     ]
   },
