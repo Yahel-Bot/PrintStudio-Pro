@@ -5,19 +5,37 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag de versión (ej. v1.0.4)'
+        required: false
+        default: ''
+      draft:
+        description: 'Crear como borrador (Draft)'
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Marcar como versión preliminar (Pre-release)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
   release:
+    name: Package Windows Release (Electron & Installer)
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -26,7 +44,43 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and Publish Installer
+      - name: Verify TypeScript Types
+        run: npm run typecheck
+
+      - name: Build Vite Frontend
+        run: npm run dev:vite -- --help > $null 2>&1 || npx vite build
+
+      - name: Package & Publish Electron Builder Assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build:publish
+
+      - name: Generate SHA-256 Checksums
+        shell: pwsh
+        run: |
+          Write-Host "Generando sumas de verificación SHA-256 para instaladores..."
+          $files = Get-ChildItem -Path build -Include "*.exe","*.blockmap","latest.yml" -Recurse -File
+          $hashLines = foreach ($f in $files) {
+            $h = (Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLower()
+            "$h  $($f.Name)"
+          }
+          $hashFile = "build/checksums-sha256.txt"
+          $hashLines | Out-File -FilePath $hashFile -Encoding utf8
+          Write-Host "Contenido de $hashFile:"
+          Get-Content $hashFile
+
+      - name: Attach SHA-256 Checksums to GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if (-not $tag -or $tag -eq "main") {
+            $tag = "${{ inputs.tag_name }}"
+          }
+          if ($tag -and (Test-Path "build/checksums-sha256.txt")) {
+            Write-Host "Subiendo checksums-sha256.txt al release $tag..."
+            gh release upload $tag "build/checksums-sha256.txt" --clobber
+          } else {
+            Write-Host "No se detectó tag específico para upload secundario de checksums."
+          }

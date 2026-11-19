@@ -46,7 +46,8 @@ function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowed
             const base = path.basename(file.originalname, ext)
                 .replace(/[^a-zA-Z0-9_-]/g, '_')
                 .substring(0, 60);
-            cb(null, `${Date.now()}-${base || 'archivo'}${ext}`);
+            const rand = Math.random().toString(36).substring(2, 7);
+            cb(null, `${Date.now()}_${rand}-${base || 'archivo'}${ext}`);
         }
     });
 
@@ -161,10 +162,12 @@ function startRemoteServer(port, uploadDir, userDataDir, onFileReceived, allowed
                             `Expand-Archive -LiteralPath '${file.path.replace(/'/g, "''")}' -DestinationPath '${extractSubdir.replace(/'/g, "''")}' -Force`
                         ], { timeout: 30000, stdio: ['pipe', 'pipe', 'ignore'] });
 
+                        const resolvedDest = path.resolve(extractSubdir);
                         const addExtracted = (dir) => {
                             const entries = fs.readdirSync(dir, { withFileTypes: true });
                             for (const entry of entries) {
-                                const fullPath = path.join(dir, entry.name);
+                                const fullPath = path.resolve(dir, entry.name);
+                                if (!fullPath.startsWith(resolvedDest)) continue;
                                 if (entry.isDirectory()) {
                                     addExtracted(fullPath);
                                 } else if (entry.isFile()) {

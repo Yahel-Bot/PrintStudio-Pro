@@ -10,6 +10,12 @@ class GestorDB {
         }
         this.userDataPath = userDataPath;
         this.db = new Database(path.join(dbDir, 'yars_pro.db'));
+        try {
+            this.db.pragma('journal_mode = WAL');
+            this.db.pragma('synchronous = NORMAL');
+        } catch (e) {
+            console.warn('[DB] No se pudo configurar WAL mode:', e.message);
+        }
         this._init();
         this.realizarRespaldoDiario();
     }
@@ -300,6 +306,16 @@ class GestorDB {
             ].join(','));
         }
         return csvLines.join('\r\n');
+    }
+
+    cerrar() {
+        if (this.db && this.db.open) {
+            try {
+                this.db.close();
+            } catch (e) {
+                console.warn('[DB] Error al cerrar base de datos:', e.message);
+            }
+        }
     }
 }
 

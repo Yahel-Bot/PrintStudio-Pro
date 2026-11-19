@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getLearningModel: () => ipcRenderer.invoke('get-learning-model'),
     savePriceCorrection: (correctionData) => ipcRenderer.invoke('save-price-correction', correctionData),
     resetLearningModel: () => ipcRenderer.invoke('reset-learning-model'),
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
     getPathForFile: (file) => {
         try {
             if (webUtils && typeof webUtils.getPathForFile === 'function') {

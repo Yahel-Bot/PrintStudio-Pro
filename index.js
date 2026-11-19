@@ -4,11 +4,23 @@ const fs = require('fs');
 const os = require('os');
 const qrcode = require('qrcode');
 const { execFile } = require('child_process');
-const { autoUpdater } = require('electron-updater');
+const { initUpdater } = require('./updater');
 
-// Configuración de actualizaciones automáticas
-autoUpdater.autoDownload = false;
-autoUpdater.autoInstallOnAppQuit = true;
+// Manejo global de excepciones no capturadas para evitar caídas silenciosas
+process.on('uncaughtException', (err) => {
+    console.error('[Main] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Main] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Carga del manifiesto centralizado de versiones
+let versionManifest = { version: '1.0.3', productName: 'PrintStudio Pro' };
+try {
+    versionManifest = require('./version.json');
+} catch (e) {}
+
+// Configuración del sistema de auto-actualización gestionado en ./updater.js
 
 const GestorDB = require('./database');
 const AnalizadorColor = require('./analysis');
@@ -92,12 +104,15 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 850,
+        minWidth: 900,
+        minHeight: 600,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true,
         },
-        title: "PrintStudio Pro"
+        title: "PrintStudio Pro",
+        icon: path.join(__dirname, 'assets/icon.ico')
     });
 
     const isDev = !app.isPackaged;
@@ -106,6 +121,9 @@ function createWindow() {
     } else {
         mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
     }
+
+    // Inicializar auto-actualizador asíncrono con GitHub Releases
+    initUpdater(mainWindow);
 }
 
 app.whenReady().then(() => {
@@ -123,12 +141,16 @@ app.whenReady().then(() => {
     try {
         const files = fs.readdirSync(tempDir);
         for (const file of files) {
-            const filePath = path.join(tempDir, file);
-            const stat = fs.statSync(filePath);
-            if (stat.isDirectory()) {
-                fs.rmSync(filePath, { recursive: true, force: true });
-            } else {
-                fs.unlinkSync(filePath);
+            try {
+                const filePath = path.join(tempDir, file);
+                const stat = fs.statSync(filePath);
+                if (stat.isDirectory()) {
+                    fs.rmSync(filePath, { recursive: true, force: true });
+                } else {
+                    fs.unlinkSync(filePath);
+                }
+            } catch (fileErr) {
+                // Si algún archivo está en uso o bloqueado por Windows, continuar con los demás
             }
         }
     } catch (e) {
@@ -177,15 +199,6 @@ app.whenReady().then(() => {
         }
     })();
 
-    if (app.isPackaged) {
-        // Verificar actualizaciones 4 segundos después del arranque
-        setTimeout(() => {
-            autoUpdater.checkForUpdates().catch(err => {
-                console.warn('No se pudo comprobar actualización inicial:', err.message);
-            });
-        }, 4000);
-    }
-
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
@@ -195,42 +208,9 @@ app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
 });
 
-// Eventos del Auto-Updater
-autoUpdater.on('update-available', (info) => {
-    console.log('[AutoUpdater] Actualización disponible:', info.version);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('update-available', {
-            version: info.version,
-            releaseDate: info.releaseDate,
-            releaseNotes: info.releaseNotes
-        });
-    }
-});
-
-autoUpdater.on('download-progress', (progressObj) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('update-download-progress', {
-            percent: progressObj.percent,
-            bytesPerSecond: progressObj.bytesPerSecond,
-            transferred: progressObj.transferred,
-            total: progressObj.total
-        });
-    }
-});
-
-autoUpdater.on('update-downloaded', (info) => {
-    console.log('[AutoUpdater] Actualización descargada con éxito:', info.version);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('update-downloaded', {
-            version: info.version
-        });
-    }
-});
-
-autoUpdater.on('error', (err) => {
-    console.warn('[AutoUpdater] Error:', err ? err.message : err);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('update-error', err ? err.message : 'Error al verificar actualizaciones');
+app.on('before-quit', () => {
+    if (db && typeof db.cerrar === 'function') {
+        db.cerrar();
     }
 });
 
@@ -238,8 +218,13 @@ autoUpdater.on('error', (err) => {
 function getPythonCommand() {
     const candidates = [
         'C:\\Python314\\python.exe',
+        'C:\\Python315\\python.exe',
         path.join(process.env.LOCALAPPDATA || '', 'Programs\\Python\\Python312\\python.exe'),
         path.join(process.env.LOCALAPPDATA || '', 'Programs\\Python\\Python313\\python.exe'),
+        path.join(process.env.LOCALAPPDATA || '', 'Programs\\Python\\Python314\\python.exe'),
+        'C:\\Python313\\python.exe',
+        'C:\\Python312\\python.exe',
+        'C:\\Python311\\python.exe',
         'python',
         'py'
     ];
@@ -254,6 +239,9 @@ function getPythonCommand() {
 }
 
 // IPC Handlers
+ipcMain.handle('get-app-version', async () => {
+    return versionManifest;
+});
 ipcMain.handle('get-printers', async () => {
     try {
         if (mainWindow && mainWindow.webContents) {
@@ -301,6 +289,27 @@ ipcMain.handle('generate-qr', async (event, text) => {
     });
 });
 
+// Helper para garantizar que un archivo se encuentre dentro de userData para acceso seguro vía HTTP local
+function ensureFileInsideUserData(filePath, userDataPath, tempDir) {
+    try {
+        const resolvedPath = path.resolve(filePath);
+        const resolvedUserData = path.resolve(userDataPath);
+        const rel = path.relative(resolvedUserData, resolvedPath);
+        const isInside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+        if (isInside && fs.existsSync(resolvedPath)) {
+            return resolvedPath;
+        }
+        const ext = path.extname(filePath) || '.png';
+        const fallbackName = `p_${Date.now()}_${Math.random().toString(36).substring(2, 7)}${ext}`;
+        const dest = path.join(tempDir, fallbackName);
+        fs.copyFileSync(filePath, dest);
+        return dest;
+    } catch (e) {
+        console.warn('Aviso en ensureFileInsideUserData:', e.message);
+        return filePath;
+    }
+}
+
 // Puente de conversión y análisis para documentos Office y PDF
 ipcMain.handle('convert-office', async (event, filePath) => {
     return new Promise((resolve) => {
@@ -334,16 +343,14 @@ ipcMain.handle('convert-office', async (event, filePath) => {
                         const result = JSON.parse(match[0]);
                         if (result.status === 'success' && Array.isArray(result.pages)) {
                             result.pages = result.pages.map(page => {
-                                let targetImg = page.image_path;
-                                if (!targetImg.startsWith(userDataPath)) {
-                                    const fallbackName = `p_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.png`;
-                                    const dest = path.join(tempDir, fallbackName);
-                                    try {
-                                        fs.copyFileSync(targetImg, dest);
-                                        targetImg = dest;
-                                    } catch (e) {}
-                                }
+                                const targetImg = ensureFileInsideUserData(page.image_path, userDataPath, tempDir);
                                 let rel = path.relative(userDataPath, targetImg).replace(/\\/g, '/');
+                                if (rel.startsWith('..')) {
+                                    const base = path.basename(targetImg);
+                                    const copyDest = path.join(tempDir, base);
+                                    try { fs.copyFileSync(targetImg, copyDest); } catch (e) {}
+                                    rel = path.relative(userDataPath, copyDest).replace(/\\/g, '/');
+                                }
                                 const encoded = rel.split('/').map(encodeURIComponent).join('/');
                                 return {
                                     ...page,
@@ -375,21 +382,18 @@ ipcMain.handle('analyze-image', async (event, filePath) => {
         const userDataPath = app.getPath('userData');
         const tempDir = path.join(userDataPath, 'temp');
         
-        let targetPath = filePath;
-        
-        if (!filePath.startsWith(userDataPath)) {
-            const ext = path.extname(filePath);
-            const safeBase = path.basename(filePath, ext).replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
-            const fileName = `img_${Date.now()}_${safeBase}${ext}`;
-            targetPath = path.join(tempDir, fileName);
-            fs.copyFileSync(filePath, targetPath);
-        }
-
+        let targetPath = ensureFileInsideUserData(filePath, userDataPath, tempDir);
         targetPath = await normalizeImageForAnalysis(targetPath, tempDir);
         
         const result = await analizador.analizar(targetPath);
         
         let relativePath = path.relative(userDataPath, targetPath).replace(/\\/g, '/');
+        if (relativePath.startsWith('..')) {
+            const base = path.basename(targetPath);
+            const copyDest = path.join(tempDir, base);
+            try { fs.copyFileSync(targetPath, copyDest); } catch (e) {}
+            relativePath = path.relative(userDataPath, copyDest).replace(/\\/g, '/');
+        }
         const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
         const localUrl = `http://localhost:${SERVER_PORT}/local-files/${encodedPath}`;
         
@@ -458,6 +462,11 @@ ipcMain.handle('print-corte-ticket', async (event, printerName) => {
 
             workerWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
 
+            workerWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+                cleanup();
+                resolve({ success: false, reason: `Error al cargar ticket de corte: ${errorDescription} (${errorCode})` });
+            });
+
             workerWindow.webContents.on('did-finish-load', () => {
                 const printOptions = {
                     silent: true,
@@ -491,7 +500,8 @@ ipcMain.handle('export-corte-csv', async () => {
     try {
         const csvContent = db.obtenerExportacionCSV();
         const today = new Date().toISOString().slice(0, 10);
-        const saveResult = await dialog.showSaveDialog(mainWindow, {
+        const win = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
+        const saveResult = await dialog.showSaveDialog(win, {
             title: 'Exportar Reporte de Ventas a CSV',
             defaultPath: `Corte_Ventas_${today}.csv`,
             filters: [
@@ -512,13 +522,14 @@ ipcMain.handle('export-corte-csv', async () => {
 
 
 ipcMain.handle('select-files', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
+    const win = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
+    const result = await dialog.showOpenDialog(win, {
         properties: ['openFile', 'multiSelections'],
         filters: [
             { name: 'Imágenes y Documentos', extensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tif', 'tiff', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'] }
         ]
     });
-    return result.filePaths;
+    return result ? result.filePaths : [];
 });
 
 // Print Ticket Handler
@@ -555,6 +566,11 @@ ipcMain.handle('print-ticket', async (event, saleData, printerName) => {
             }, 30000);
 
             workerWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+
+            workerWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+                cleanup();
+                resolve({ success: false, reason: `Error al cargar ticket de corte: ${errorDescription} (${errorCode})` });
+            });
 
             workerWindow.webContents.on('did-finish-load', () => {
                 const printOptions = {
@@ -616,6 +632,11 @@ ipcMain.handle('print-document', async (event, jobData) => {
 
             workerWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
 
+            workerWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+                cleanup();
+                resolve({ success: false, reason: `Error al cargar ticket de corte: ${errorDescription} (${errorCode})` });
+            });
+
             workerWindow.webContents.on('did-finish-load', () => {
                 const printOptions = {
                     silent: true,
@@ -647,36 +668,8 @@ ipcMain.handle('print-document', async (event, jobData) => {
     });
 });
 
-// Auto-Updater IPC Handlers
-ipcMain.handle('check-for-updates', async () => {
-    if (!app.isPackaged) {
-        return { status: 'dev-mode', message: 'Las actualizaciones automáticas solo funcionan en la app empaquetada.' };
-    }
-    try {
-        const result = await autoUpdater.checkForUpdates();
-        return { status: 'checked', updateInfo: result ? result.updateInfo : null };
-    } catch (e) {
-        console.warn('Error manual check-for-updates:', e.message);
-        return { status: 'error', error: e.message };
-    }
-});
-
-ipcMain.handle('download-update', async () => {
-    try {
-        await autoUpdater.downloadUpdate();
-        return { success: true };
-    } catch (e) {
-        console.error('Error al descargar actualización:', e);
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('quit-and-install', () => {
-    setImmediate(() => {
-        autoUpdater.quitAndInstall(false, true);
-    });
-    return true;
-});
+// Los manejadores IPC de Auto-Updater ('check-for-updates', 'download-update', 'quit-and-install')
+// y la verificación asíncrona de arranque son gestionados de forma no bloqueante por ./updater.js
 
 function generatePrintHTML(jobData) {
     const { copies, paperSize, imageLayout, fitOption, orientation } = jobData;

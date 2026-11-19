@@ -3,6 +3,7 @@ import logo from './assets/logo.png';
 import { getLayoutDimensions, getPaperAspectRatio, getPreviewDimensions, PAPER_SPECS } from './domain/layout';
 import { calculatePrintCosts, isColorPage } from './domain/pricing';
 import uploadFormats from '../upload_formats.json';
+import versionManifest from '../version.json';
 
 // Tipos para la API de Electron
 declare global {
@@ -49,6 +50,7 @@ declare global {
       getLearningModel: () => Promise<any>;
       savePriceCorrection: (correctionData: any) => Promise<any>;
       resetLearningModel: () => Promise<any>;
+      getAppVersion?: () => Promise<{ version: string; productName?: string; [key: string]: any }>;
       getPathForFile: (file: any) => string;
       onFileReceived: (callback: (filePath: string) => void) => () => void;
       onTunnelUrl: (callback: (url: string) => void) => () => void;
@@ -141,13 +143,14 @@ const App: React.FC = () => {
   // Auto-updater State
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'available' | 'downloading' | 'downloaded' | 'error'>('idle');
   const [updateVersion, setUpdateVersion] = useState<string>('');
+  const [updateChangelog, setUpdateChangelog] = useState<string>('');
   const [updateProgress, setUpdateProgress] = useState<number>(0);
   const [updateSpeed, setUpdateSpeed] = useState<string>('');
   const [updateDismissed, setUpdateDismissed] = useState<boolean>(false);
 
   // Application State
   const [connectionMode, setConnectionMode] = useState<'hotspot' | 'wifi' | 'internet'>('hotspot');
-  const [hotspotStep, setHotspotStep] = useState<'wifi' | 'upload'>('wifi');
+  const [hotspotStep, setHotspotStep] = useState<'dual' | 'wifi' | 'upload'>('dual');
   const [hotspotInfo, setHotspotInfo] = useState<{
     supported: boolean;
     state: string;
@@ -171,7 +174,22 @@ const App: React.FC = () => {
 
   // Big QR modal & Toast notification
   const [showBigQrModal, setShowBigQrModal] = useState<boolean>(false);
-  const [bigQrData, setBigQrData] = useState<{ title: string; subtitle: string; qr: string; helpText?: string; tipText?: string } | null>(null);
+  const [bigQrData, setBigQrData] = useState<{ 
+    title: string; 
+    subtitle: string; 
+    qr?: string; 
+    helpText?: string; 
+    tipText?: string;
+    isDual?: boolean;
+    dualQrs?: {
+      qr1: string;
+      title1: string;
+      subtitle1: string;
+      qr2: string;
+      title2: string;
+      subtitle2: string;
+    };
+  } | null>(null);
   const [toastMessage, setToastMessage] = useState<{ type: 'error' | 'success' | 'info'; text: string } | null>(null);
 
   const showToast = (text: string, type: 'error' | 'success' | 'info' = 'info') => {
@@ -292,6 +310,24 @@ const App: React.FC = () => {
     } catch (e) {
       console.error('Error generating QRs:', e);
     }
+  };
+
+  const openDualBigQrModal = () => {
+    setBigQrData({
+      title: 'Conexión Directa Móvil (Sin Wi-Fi Externo)',
+      subtitle: 'Sigue estos 2 sencillos pasos con la cámara de tu celular para transferir tus archivos:',
+      isDual: true,
+      dualQrs: {
+        qr1: wifiConnectQr,
+        title1: '1. Conectar al Wi-Fi de la PC',
+        subtitle1: hotspotInfo?.password ? `Red: ${hotspotInfo.ssid || 'PrintStudio'} • Clave: ${hotspotInfo.password}` : `Red: ${hotspotInfo?.ssid || 'PrintStudio'}`,
+        qr2: hotspotUploadQr,
+        title2: '2. Subir Archivos a la PC',
+        subtitle2: `Enlace directo: http://${hotspotIp}:3500${uploadRoute}`
+      },
+      tipText: '💡 Si tu celular pregunta "¿Mantener conexión sin internet?", selecciona SÍ. Si tienes datos móviles (4G/5G) activos y el paso 2 no abre, desactívalos temporalmente.'
+    });
+    setShowBigQrModal(true);
   };
 
   const handleToggleHotspot = async () => {
@@ -461,6 +497,7 @@ const App: React.FC = () => {
     if (window.electronAPI?.onUpdateAvailable) {
       cleanups.push(window.electronAPI.onUpdateAvailable((info) => {
         setUpdateVersion(info.version || '');
+        setUpdateChangelog(info.releaseNotes || '');
         setUpdateStatus('available');
         setUpdateDismissed(false);
       }));
@@ -1610,7 +1647,7 @@ const App: React.FC = () => {
           <div style={{display:'flex', flexDirection:'column', flex: 1}}>
             <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
               <span className="brand-name">PrintStudio Pro</span>
-              <span className="brand-version-badge">v1.0.0</span>
+              <span className="brand-version-badge">v{versionManifest.version || '1.0.3'}</span>
             </div>
             <span style={{fontSize:11, color:'var(--text-secondary)'}}>Sistema Inteligente de Impresión</span>
           </div>
@@ -2129,8 +2166,15 @@ const App: React.FC = () => {
                 </button>
               </div>
 
-              {/* Paso 1 vs Paso 2 */}
+              {/* Selector de modo de pasos: Dual vs Paso individual */}
               <div className="hotspot-step-tabs">
+                <button
+                  type="button"
+                  className={`hotspot-step-btn ${hotspotStep === 'dual' ? 'active' : ''}`}
+                  onClick={() => setHotspotStep('dual')}
+                >
+                  ⚡ Ambos (Dual)
+                </button>
                 <button
                   type="button"
                   className={`hotspot-step-btn ${hotspotStep === 'wifi' ? 'active' : ''}`}
@@ -2147,7 +2191,53 @@ const App: React.FC = () => {
                 </button>
               </div>
 
-              {hotspotStep === 'wifi' ? (
+              {hotspotStep === 'dual' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                  <div 
+                    style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', cursor: 'pointer' }}
+                    onClick={openDualBigQrModal}
+                    title="Clic para ver ambos códigos en tamaño grande"
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '9.5px', fontWeight: 700, color: '#a5b4fc' }}>1. Conectar Wi-Fi</span>
+                      <div className="qr-image-wrapper">
+                        {wifiConnectQr ? (
+                          <img src={wifiConnectQr} className="qr-image" style={{ width: 104, height: 104 }} alt="QR Conectar Wi-Fi" />
+                        ) : (
+                          <div style={{ width: 104, height: 104, background: 'rgba(255,255,255,0.05)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: 'var(--text-secondary)', textAlign: 'center', padding: 4 }}>
+                            Activa la Zona Móvil
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '9.5px', fontWeight: 700, color: '#6ee7b7' }}>2. Subir Archivos</span>
+                      <div className="qr-image-wrapper">
+                        {hotspotUploadQr ? (
+                          <img src={hotspotUploadQr} className="qr-image" style={{ width: 104, height: 104 }} alt="QR Subir Archivos" />
+                        ) : (
+                          <div style={{ width: 104, height: 104, background: 'rgba(255,255,255,0.05)', borderRadius: 6 }}></div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {(hotspotInfo?.clients || 0) > 0 ? (
+                    <div 
+                      style={{ fontSize: '10px', color: '#6ee7b7', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '6px', padding: '4px 8px', textAlign: 'center', cursor: 'pointer' }}
+                      onClick={() => setHotspotStep('upload')}
+                    >
+                      ✨ {hotspotInfo?.clients} {hotspotInfo?.clients === 1 ? 'celular conectado' : 'celulares conectados'} • Listo para recibir archivos
+                    </div>
+                  ) : (
+                    <p className="qr-instructions">
+                      Escanea <strong>1</strong> para conectar al Wi-Fi de la PC, luego <strong>2</strong> para abrir la web de subida.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {hotspotStep === 'wifi' && (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                   <div 
                     className="qr-image-wrapper"
@@ -2185,7 +2275,9 @@ const App: React.FC = () => {
                     </p>
                   )}
                 </div>
-              ) : (
+              )}
+
+              {hotspotStep === 'upload' && (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                   <div 
                     className="qr-image-wrapper"
@@ -2308,7 +2400,7 @@ const App: React.FC = () => {
                 {updateStatus === 'available' && (
                   <>
                     <strong>¡Nueva versión {updateVersion} disponible!</strong>
-                    <span>Hay una actualización lista para instalar en PrintStudio Pro.</span>
+                    <span>{updateChangelog ? `Novedades: ${updateChangelog}` : 'Hay una actualización lista para instalar en PrintStudio Pro.'}</span>
                   </>
                 )}
                 {updateStatus === 'downloading' && (
@@ -2486,15 +2578,45 @@ const App: React.FC = () => {
       {/* Big QR Modal for Counter Customers */}
       {showBigQrModal && bigQrData && (
         <div className="modal-backdrop" onClick={() => setShowBigQrModal(false)}>
-          <div className="big-qr-container" onClick={(e) => e.stopPropagation()}>
+          <div className={`big-qr-container ${bigQrData.isDual ? 'dual' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="big-qr-title">{bigQrData.title}</div>
             <div className="big-qr-subtitle">{bigQrData.subtitle}</div>
-            <img src={bigQrData.qr} alt="Código QR Grande" className="big-qr-img" />
-            {bigQrData.helpText && (
-              <div className="big-qr-note">
-                {bigQrData.helpText}
+
+            {bigQrData.isDual && bigQrData.dualQrs ? (
+              <div className="big-qr-dual-row">
+                <div className="big-qr-card">
+                  <div className="big-qr-card-title">{bigQrData.dualQrs.title1}</div>
+                  {bigQrData.dualQrs.qr1 ? (
+                    <img src={bigQrData.dualQrs.qr1} alt="QR 1 Wi-Fi" className="big-qr-img-dual" />
+                  ) : (
+                    <div style={{ width: 190, height: 190, background: 'rgba(255,255,255,0.05)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'var(--text-secondary)' }}>
+                      Zona Móvil apagada
+                    </div>
+                  )}
+                  <div className="big-qr-card-sub">{bigQrData.dualQrs.subtitle1}</div>
+                </div>
+
+                <div className="big-qr-card">
+                  <div className="big-qr-card-title step2">{bigQrData.dualQrs.title2}</div>
+                  {bigQrData.dualQrs.qr2 ? (
+                    <img src={bigQrData.dualQrs.qr2} alt="QR 2 Subir Archivos" className="big-qr-img-dual" />
+                  ) : (
+                    <div style={{ width: 190, height: 190, background: 'rgba(255,255,255,0.05)', borderRadius: 8 }}></div>
+                  )}
+                  <div className="big-qr-card-sub">{bigQrData.dualQrs.subtitle2}</div>
+                </div>
               </div>
+            ) : (
+              <>
+                {bigQrData.qr && <img src={bigQrData.qr} alt="Código QR Grande" className="big-qr-img" />}
+                {bigQrData.helpText && (
+                  <div className="big-qr-note">
+                    {bigQrData.helpText}
+                  </div>
+                )}
+              </>
             )}
+
             {bigQrData.tipText && (
               <div style={{ marginTop: '8px', padding: '8px 12px', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '8px', fontSize: '11px', color: '#fde68a', textAlign: 'center', lineHeight: 1.4 }}>
                 {bigQrData.tipText}

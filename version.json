@@ -1,0 +1,10 @@
+{
+  "name": "printstudio_pro",
+  "productName": "PrintStudio Pro",
+  "version": "1.0.3",
+  "description": "PrintStudio Pro - Intelligent Color Scanner, Cost Calculator & Printer Bridge",
+  "releaseDate": "2026-11-19",
+  "author": "Yahel Abdiel Rodríguez Sánchez",
+  "electronVersion": "31.0.0",
+  "license": "ISC"
+}

@@ -93,8 +93,12 @@ try {
     try {
         if ($state -eq 'On') {
             $clients = $tm.ClientCount
+            try { [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager]::DisableNoConnectionsTimeout() } catch {}
         }
     } catch {}
+
+    $hsIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -like '192.168.137.*' } | Select-Object -ExpandProperty IPAddress -First 1)
+    if (-not $hsIp) { $hsIp = '192.168.137.1' }
     
     $result = @{
         supported = $true
@@ -102,7 +106,7 @@ try {
         ssid = if ($cfg) { $cfg.Ssid } else { 'PrintStudio-Pro' }
         password = if ($cfg) { $cfg.Passphrase } else { 'printstudio123' }
         clients = $clients
-        ip = '192.168.137.1'
+        ip = $hsIp
         error = $null
     }
     
@@ -149,22 +153,29 @@ try {
     
     if ($enable) {
         if ($currentState -ne 'On') {
-            $null = $tm.StartTetheringAsync()
+            try { [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager]::DisableNoConnectionsTimeout() } catch {}
+            $asyncOp = $tm.StartTetheringAsync()
             $waitCount = 0
-            while ($tm.TetheringOperationalState.ToString() -eq 'InTransition' -and $waitCount -lt 20) {
-                Start-Sleep -Milliseconds 500
+            while ($asyncOp.Status.ToString() -eq 'Started' -and $waitCount -lt 30) {
+                Start-Sleep -Milliseconds 300
                 $waitCount++
             }
         }
     } else {
         if ($currentState -ne 'Off') {
-            $null = $tm.StopTetheringAsync()
+            $asyncOp = $tm.StopTetheringAsync()
             $waitCount = 0
-            while ($tm.TetheringOperationalState.ToString() -eq 'InTransition' -and $waitCount -lt 20) {
-                Start-Sleep -Milliseconds 500
+            while ($asyncOp.Status.ToString() -eq 'Started' -and $waitCount -lt 30) {
+                Start-Sleep -Milliseconds 300
                 $waitCount++
             }
         }
+    }
+
+    $waitSettle = 0
+    while ($tm.TetheringOperationalState.ToString() -eq 'InTransition' -and $waitSettle -lt 15) {
+        Start-Sleep -Milliseconds 250
+        $waitSettle++
     }
     
     $finalState = $tm.TetheringOperationalState.ToString()
@@ -176,8 +187,12 @@ try {
     try {
         if ($finalState -eq 'On') {
             $clients = $tm.ClientCount
+            try { [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager]::DisableNoConnectionsTimeout() } catch {}
         }
     } catch {}
+
+    $hsIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -like '192.168.137.*' } | Select-Object -ExpandProperty IPAddress -First 1)
+    if (-not $hsIp) { $hsIp = '192.168.137.1' }
     
     $result = @{
         success = $true
@@ -186,7 +201,7 @@ try {
         ssid = if ($cfg) { $cfg.Ssid } else { 'PrintStudio-Pro' }
         password = if ($cfg) { $cfg.Passphrase } else { 'printstudio123' }
         clients = $clients
-        ip = '192.168.137.1'
+        ip = $hsIp
         message = if ($finalState -eq 'On') { 'Zona Móvil iniciada con éxito' } else { 'Zona Móvil detenida' }
     }
     Write-Output ($result | ConvertTo-Json -Compress)

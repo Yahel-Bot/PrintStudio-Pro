@@ -219,6 +219,55 @@
             background: rgba(239, 68, 68, 0.15);
         }
 
+        .file-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 7px;
+            border-radius: 6px;
+            margin-top: 3px;
+            width: fit-content;
+        }
+
+        .file-status-pill.pending {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-secondary);
+        }
+
+        .file-status-pill.uploading {
+            background: rgba(99, 102, 241, 0.2);
+            color: #a5b4fc;
+        }
+
+        .file-status-pill.done {
+            background: rgba(16, 185, 129, 0.15);
+            color: #6ee7b7;
+        }
+
+        .file-status-pill.error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+            cursor: pointer;
+        }
+
+        .file-mini-progress {
+            width: 100%;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        .file-mini-progress-fill {
+            height: 100%;
+            width: 0%;
+            background: var(--primary);
+            transition: width 0.12s ease;
+        }
+
         .progress-box {
             margin-top: 16px;
             display: none;
@@ -413,7 +462,7 @@
             <div class="dropzone-subtext">O arrastra y suelta tus archivos aquí</div>
             <div class="file-types-badge">PDF, Office (Word, Excel, PPT), Fotos/Imágenes, ZIP</div>
         </div>
-        <input type="file" id="fileInput" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.bmp,.tif,.tiff,.gif,.svg,.avif,.heic,.heif">
+        <input type="file" id="fileInput" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.jpe,.jfif,.png,.webp,.bmp,.tif,.tiff,.gif,.svg,.avif,.heic,.heif,.zip">
 
         <div class="file-list" id="fileList"></div>
 
@@ -504,15 +553,20 @@
         let selectedFiles = [];
         const MAX_FILES = 50;
         const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+        let isUploading = false;
 
-        dropzone.addEventListener('click', () => fileInput.click());
+        dropzone.addEventListener('click', () => {
+            if (!isUploading) fileInput.click();
+        });
         if (moreFilesBtn) {
-            moreFilesBtn.addEventListener('click', () => fileInput.click());
+            moreFilesBtn.addEventListener('click', () => {
+                if (!isUploading) fileInput.click();
+            });
         }
 
         dropzone.addEventListener('dragover', (e) => {
             e.preventDefault();
-            dropzone.classList.add('dragover');
+            if (!isUploading) dropzone.classList.add('dragover');
         });
 
         dropzone.addEventListener('dragleave', () => {
@@ -522,7 +576,7 @@
         dropzone.addEventListener('drop', (e) => {
             e.preventDefault();
             dropzone.classList.remove('dragover');
-            if (e.dataTransfer && e.dataTransfer.files) {
+            if (!isUploading && e.dataTransfer && e.dataTransfer.files) {
                 addFiles(e.dataTransfer.files);
             }
         });
@@ -565,10 +619,17 @@
                     errors.push('"' + file.name + '" excede el límite de 100 MB.');
                     return;
                 }
-                // Check if already selected
-                const exists = selectedFiles.some(f => f.name === file.name && f.size === file.size);
+                const exists = selectedFiles.some(item => item.name === file.name && item.size === file.size);
                 if (!exists) {
-                    selectedFiles.push(file);
+                    selectedFiles.push({
+                        id: 'f_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+                        file: file,
+                        name: file.name,
+                        size: file.size,
+                        status: 'pending',
+                        progress: 0,
+                        errorMsg: ''
+                    });
                 }
             });
 
@@ -580,51 +641,98 @@
             updateUploadButton();
         }
 
-        function removeFile(index) {
-            selectedFiles.splice(index, 1);
-            renderFileList();
-            updateUploadButton();
+        function removeFile(id) {
+            if (isUploading) return;
+            const index = selectedFiles.findIndex(item => item.id === id);
+            if (index !== -1) {
+                selectedFiles.splice(index, 1);
+                renderFileList();
+                updateUploadButton();
+            }
+        }
+
+        function retryFile(id) {
+            if (isUploading) return;
+            const item = selectedFiles.find(i => i.id === id);
+            if (item) {
+                item.status = 'pending';
+                item.progress = 0;
+                item.errorMsg = '';
+                renderFileList();
+                startUploadProcess();
+            }
         }
 
         function renderFileList() {
             fileList.innerHTML = '';
-            selectedFiles.forEach((file, index) => {
-                const item = document.createElement('div');
-                item.className = 'file-item';
+            selectedFiles.forEach((item) => {
+                const row = document.createElement('div');
+                row.className = 'file-item';
+                row.id = 'row_' + item.id;
                 
-                const icon = getFileIcon(file.name);
-                const sizeStr = formatSize(file.size);
+                const icon = getFileIcon(item.name);
+                const sizeStr = formatSize(item.size);
 
-                const isImg = file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|bmp|gif|heic|heif)$/i.test(file.name);
+                const isImg = item.file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|bmp|gif|heic|heif)$/i.test(item.name);
                 let visualEl = '<span class="file-badge-icon">' + icon + '</span>';
                 if (isImg && typeof URL !== 'undefined' && URL.createObjectURL) {
                     try {
-                        const thumbUrl = URL.createObjectURL(file);
+                        const thumbUrl = URL.createObjectURL(item.file);
                         visualEl = '<img src="' + thumbUrl + '" style="width: 38px; height: 38px; object-fit: cover; border-radius: 8px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.1);" alt="Miniatura">';
                     } catch (e) {}
                 }
 
-                item.innerHTML = 
+                let statusBadge = '';
+                if (item.status === 'pending') {
+                    statusBadge = '<span class="file-status-pill pending">⏳ Pendiente</span>';
+                } else if (item.status === 'uploading') {
+                    statusBadge = '<span class="file-status-pill uploading">📤 ' + item.progress + '%</span>';
+                } else if (item.status === 'done') {
+                    statusBadge = '<span class="file-status-pill done">✅ Enviado</span>';
+                } else if (item.status === 'error') {
+                    statusBadge = '<span class="file-status-pill error" title="Reintentar este archivo" onclick="retryFile(\'' + item.id + '\')">⚠️ Error (↺ Reintentar)</span>';
+                }
+
+                const miniProgressHtml = item.status === 'uploading' 
+                    ? '<div class="file-mini-progress"><div class="file-mini-progress-fill" style="width: ' + item.progress + '%;"></div></div>'
+                    : '';
+
+                row.innerHTML = 
                     '<div class="file-info">' +
                         visualEl +
-                        '<div class="file-details">' +
-                            '<span class="file-name" title="' + file.name + '">' + file.name + '</span>' +
-                            '<span class="file-size">' + sizeStr + '</span>' +
+                        '<div class="file-details" style="width: 100%;">' +
+                            '<span class="file-name" title="' + item.name + '">' + item.name + '</span>' +
+                            '<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px;">' +
+                                '<span class="file-size">' + sizeStr + '</span>' +
+                                statusBadge +
+                            '</div>' +
+                            miniProgressHtml +
                         '</div>' +
                     '</div>' +
-                    '<button type="button" class="remove-btn" title="Eliminar" onclick="removeFile(' + index + ')">×</button>';
+                    (!isUploading && item.status !== 'uploading' 
+                        ? '<button type="button" class="remove-btn" title="Eliminar" onclick="removeFile(\'' + item.id + '\')">×</button>' 
+                        : '');
 
-                fileList.appendChild(item);
+                fileList.appendChild(row);
             });
         }
 
         function updateUploadButton() {
-            const count = selectedFiles.length;
-            if (count === 0) {
+            const pendingOrError = selectedFiles.filter(i => i.status === 'pending' || i.status === 'error');
+            const total = selectedFiles.length;
+
+            if (isUploading) {
+                uploadBtn.disabled = true;
+                uploadBtnText.textContent = 'Enviando archivos...';
+            } else if (total === 0) {
                 uploadBtn.disabled = true;
                 uploadBtnText.textContent = 'Selecciona archivos para enviar';
+            } else if (pendingOrError.length === 0) {
+                uploadBtn.disabled = true;
+                uploadBtnText.textContent = '✓ Todos los archivos enviados';
             } else {
                 uploadBtn.disabled = false;
+                const count = pendingOrError.length;
                 uploadBtnText.textContent = 'Enviar ' + count + ' ' + (count === 1 ? 'archivo' : 'archivos');
             }
         }
@@ -647,72 +755,134 @@
             errorMsg.style.display = 'none';
         }
 
-        uploadBtn.addEventListener('click', () => {
-            if (selectedFiles.length === 0) return;
+        function uploadSingleItem(item, targetUrl) {
+            return new Promise((resolve) => {
+                const formData = new FormData();
+                formData.append('files', item.file);
+
+                const xhr = new XMLHttpRequest();
+                item.status = 'uploading';
+                item.progress = 0;
+                renderFileList();
+
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        item.progress = Math.round((e.loaded / e.total) * 100);
+                        updateMasterProgress();
+                        const row = document.getElementById('row_' + item.id);
+                        if (row) {
+                            const badge = row.querySelector('.file-status-pill');
+                            if (badge) {
+                                badge.className = 'file-status-pill uploading';
+                                badge.textContent = '📤 ' + item.progress + '%';
+                            }
+                            const fill = row.querySelector('.file-mini-progress-fill');
+                            if (fill) fill.style.width = item.progress + '%';
+                        }
+                    }
+                });
+
+                xhr.addEventListener('load', () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        item.status = 'done';
+                        item.progress = 100;
+                        resolve({ success: true, item });
+                    } else {
+                        item.status = 'error';
+                        item.errorMsg = xhr.responseText || ('Error ' + xhr.status);
+                        resolve({ success: false, item, error: item.errorMsg });
+                    }
+                    renderFileList();
+                    updateMasterProgress();
+                });
+
+                xhr.addEventListener('error', () => {
+                    item.status = 'error';
+                    item.errorMsg = 'Error de conexión';
+                    offlineAdvisory.style.display = 'flex';
+                    renderFileList();
+                    updateMasterProgress();
+                    resolve({ success: false, item, error: 'Conexión interrumpida' });
+                });
+
+                xhr.addEventListener('timeout', () => {
+                    item.status = 'error';
+                    item.errorMsg = 'Tiempo agotado';
+                    renderFileList();
+                    updateMasterProgress();
+                    resolve({ success: false, item, error: 'Tiempo agotado' });
+                });
+
+                xhr.timeout = 120000;
+                xhr.open('POST', targetUrl, true);
+                xhr.send(formData);
+            });
+        }
+
+        function updateMasterProgress() {
+            const activeQueue = selectedFiles.filter(i => i.status === 'uploading' || i.status === 'done');
+            const totalBytes = selectedFiles.reduce((acc, i) => acc + i.size, 0) || 1;
+            let loadedBytes = 0;
+            selectedFiles.forEach(i => {
+                if (i.status === 'done') loadedBytes += i.size;
+                else if (i.status === 'uploading') loadedBytes += (i.size * (i.progress / 100));
+            });
+
+            const percent = Math.min(100, Math.round((loadedBytes / totalBytes) * 100));
+            progressBar.style.width = percent + '%';
+            progressPercent.textContent = percent + '%';
+
+            const doneCount = selectedFiles.filter(i => i.status === 'done').length;
+            progressStatus.textContent = 'Enviados ' + doneCount + ' de ' + selectedFiles.length + ' archivos (' + percent + '%)...';
+        }
+
+        async function startUploadProcess() {
+            const queue = selectedFiles.filter(i => i.status === 'pending' || i.status === 'error');
+            if (queue.length === 0) return;
 
             hideAlerts();
-            uploadBtn.disabled = true;
-            uploadBtnText.textContent = 'Enviando...';
+            isUploading = true;
+            updateUploadButton();
+
             progressContainer.style.display = 'block';
             progressBar.style.width = '0%';
             progressPercent.textContent = '0%';
-            progressStatus.textContent = 'Conectando con la impresora...';
+            progressStatus.textContent = 'Iniciando transferencia hacia PrintStudio Pro...';
 
-            const formData = new FormData();
-            selectedFiles.forEach(file => {
-                formData.append('files', file);
-            });
-
-            const xhr = new XMLHttpRequest();
             const targetUrl = window.__UPLOAD_ROUTE__ || window.location.pathname || '/upload';
 
-            xhr.upload.addEventListener('progress', (e) => {
-                if (e.lengthComputable) {
-                    const percent = Math.round((e.loaded / e.total) * 100);
-                    progressBar.style.width = percent + '%';
-                    progressPercent.textContent = percent + '%';
-                    progressStatus.textContent = 'Enviando archivos (' + percent + '%)...';
-                }
-            });
+            // Transferir secuencialmente para máxima estabilidad en redes móviles/hotspot
+            let successCount = 0;
+            let failureCount = 0;
 
-            xhr.addEventListener('load', () => {
-                progressContainer.style.display = 'none';
-                uploadBtn.disabled = false;
-
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    showSuccess('¡Archivos enviados con éxito! La aplicación los está procesando.');
-                    selectedFiles = [];
-                    renderFileList();
-                    fileInput.value = '';
-                    updateUploadButton();
+            for (let i = 0; i < queue.length; i++) {
+                const item = queue[i];
+                progressStatus.textContent = 'Enviando ' + (i + 1) + ' de ' + queue.length + ': ' + item.name + '...';
+                const res = await uploadSingleItem(item, targetUrl);
+                if (res.success) {
+                    successCount++;
                 } else {
-                    let errMsg = 'Error al enviar archivos (' + xhr.status + ')';
-                    try {
-                        if (xhr.responseText) errMsg = xhr.responseText;
-                    } catch (e) {}
-                    showError(errMsg);
-                    updateUploadButton();
+                    failureCount++;
                 }
-            });
+            }
 
-            xhr.addEventListener('error', () => {
+            isUploading = false;
+            updateUploadButton();
+
+            if (failureCount === 0) {
                 progressContainer.style.display = 'none';
-                uploadBtn.disabled = false;
-                updateUploadButton();
-                showError('Error de conexión. Si tienes datos móviles encendidos, desactívalos un momento para que el navegador use la red local.');
-                offlineAdvisory.style.display = 'flex';
-            });
+                showSuccess('¡Todos los archivos (' + successCount + ') fueron enviados con éxito! La aplicación los está procesando.');
+                if (moreFilesBtn) moreFilesBtn.style.display = 'flex';
+            } else if (successCount > 0) {
+                showError('Se enviaron ' + successCount + ' archivos, pero ' + failureCount + ' tuvieron error. Puedes tocar "Reintentar" en los archivos marcados.');
+                if (moreFilesBtn) moreFilesBtn.style.display = 'flex';
+            } else {
+                showError('No se pudieron enviar los archivos. Si tienes datos móviles (4G/5G) activos, desactívalos temporalmente para usar la red de la PC.');
+            }
+        }
 
-            xhr.addEventListener('timeout', () => {
-                progressContainer.style.display = 'none';
-                uploadBtn.disabled = false;
-                updateUploadButton();
-                showError('Tiempo de espera agotado. Verifica la conexión con la PC.');
-            });
-
-            xhr.timeout = 120000; // 120s
-            xhr.open('POST', targetUrl, true);
-            xhr.send(formData);
+        uploadBtn.addEventListener('click', () => {
+            startUploadProcess();
         });
     </script>
 </body>

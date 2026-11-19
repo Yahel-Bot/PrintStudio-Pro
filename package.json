@@ -13,6 +13,7 @@
       "dist/**/*",
       "index.js",
       "preload.js",
+      "updater.js",
       "database.js",
       "analysis.js",
       "image_normalizer.js",
@@ -22,6 +23,7 @@
       "ticket_generator.js",
       "upload_formats.json",
       "upload_client.html",
+      "version.json",
       "assets/**/*",
       "node_modules/**/*"
     ],
@@ -58,6 +60,7 @@
     "dev:electron": "wait-on http://localhost:5173 && electron .",
     "build": "vite build && electron-builder",
     "build:publish": "vite build && electron-builder --publish always",
+    "release": "node scripts/publish_release.js",
     "rebuild": "electron-builder install-app-deps",
     "typecheck": "tsc --noEmit",
     "test": "node --test"
